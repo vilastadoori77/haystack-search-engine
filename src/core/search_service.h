@@ -12,4 +12,13 @@ public:
 
 private:
     InvertedIndex idx_;
+
+    // docId -> document length (token count)
+    std::unordered_map<int, int> doc_len_;
+
+    // number of documents indexed
+    int N_ = 0;
+
+    // average doument length
+    double avgdl_ = 0.0;
 };

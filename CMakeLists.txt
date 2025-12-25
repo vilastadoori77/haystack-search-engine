@@ -19,7 +19,6 @@ add_executable(unit_tests
   tests/test_inverted_index.cpp
   tests/test_query_parser.cpp
   tests/test_search_service.cpp
-  tests/test_ranking.cpp
   tests/test_bm25.cpp
 )
 

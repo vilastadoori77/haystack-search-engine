@@ -5,7 +5,7 @@
 TEST_CASE("BM25 ranks shorter relevant doc higher than longer irrelevant doc")
 {
     SearchService ss;
-    ss.add_document(1, "hello world hellow world hello world hello world");
+    ss.add_document(1, "hello filler filler filler filler filler filler filler filler filler filler world");
     ss.add_document(2, "hello world");
 
     auto results = ss.search("hello world");

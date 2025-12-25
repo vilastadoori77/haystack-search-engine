@@ -1,12 +1,26 @@
 #include "search_service.h"
 #include "query_parser.h"
+#include "tokenizer.h"
 #include <algorithm>
 #include <unordered_set>
+#include <cmath>
 
 // Adds a document to the tunderlying inverted index
 void SearchService::add_document(int doc_id, const std::string &text)
 {
     idx_.add_document(doc_id, text);
+
+    // track document length for BM25
+    int dl = (int)tokenize(text).size();
+    doc_len_[doc_id] = dl;
+
+    // update corpus stats
+    N_ = (int)doc_len_.size();
+
+    long long total = 0;
+    for (const auto &kv : doc_len_)
+        total += kv.second;
+    avgdl_ = (N_ > 0) ? (double)total / (double)N_ : 0.0;
 }
 
 // Helper: AND logic
@@ -100,62 +114,107 @@ static std::vector<int> union_sorted(std::vector<int> a, std::vector<int> b)
 
     return out;
 }
-
-// Main search function
+// Searches the inverted index for documents matching the query∏
 std::vector<int> SearchService::search(const std::string &query) const
 {
-    // Step 1: Parse  the query string
-    // Extracts: terms, not_terms, and is_or flag
+    // Step 1: Parse the query into terms, Not terms, and OR flag
     auto pq = parse_query(query);
+
+    // Step 2: Collect candidate documents using AND/OR logic over terms
     std::vector<int> result;
     bool first = true;
-    // Step 2: Collect matching documents for each term
     for (const auto &term : pq.terms)
     {
         auto docs = idx_.search(term);
-
-        // First term initializes the result set
         if (first)
         {
             result = docs;
             first = false;
         }
-        // combine results depending on OR/AND logic
         else
         {
             result = pq.is_or ? union_sorted(result, docs) : intersect_sorted(result, docs);
         }
     }
+    // If query has no terms, return empty result
+    if (first)
+        return {};
+    ;
 
-    // Step 3: Apply Not terms (exclusion)
-    if (!pq.not_terms.empty())
+    // Step 3: Build NOT-exclusion set once
+    std::unordered_set<int> excluded;
+    for (const auto &t : pq.not_terms)
     {
-        // Collect all documents to exclude
-        std::unordered_set<int> excluded;
-        for (const auto &t : pq.not_terms)
+        for (int id : idx_.search(t))
         {
-            for (int id : idx_.search(t))
-            {
-                excluded.insert(id);
-            }
+            excluded.insert(id);
         }
-
-        // Remove excluded documents from result
-        std::vector<int> filtered;
-        for (int id : result)
-        {
-            if (!excluded.count(id))
-            {
-                filtered.push_back(id);
-            }
-        }
-        result = filtered;
     }
 
-    // Step 4: normalize the output
-    // - sort
-    // - remove duplicates
-    std::sort(result.begin(), result.end());
-    result.erase(std::unique(result.begin(), result.end()), result.end());
-    return result;
+    // Step 4: BM25  Scoring on candidate docs
+    const double k1 = 1.2;
+    const double b = 0.75;
+    struct Scored
+    {
+        int doc_id;
+        double score;
+    };
+
+    std::vector<Scored> scored;
+    scored.reserve(result.size());
+
+    for (int docId : result)
+    {
+        if (excluded.count(docId))
+            continue;
+
+        // Safety:doc length must exist
+        auto itLen = doc_len_.find(docId);
+        if (itLen == doc_len_.end())
+            continue;
+
+        double dl = static_cast<double>(itLen->second);
+
+        // Length normalization (avoid division by zero)
+
+        double denom_norm = (avgdl_ > 0.0) ? (1.0 - b + b * (dl / avgdl_)) : 1.0;
+        double score = 0.0;
+
+        for (const auto &term : pq.terms)
+        {
+            int df = idx_.df(term);
+            if (df == 0)
+                continue;
+            const auto &postings = idx_.postings(term);
+            // Efficiently find the docID using Binary Search
+            auto it = std::lower_bound(postings.begin(), postings.end(),
+                                       std::make_pair(docId, 0),
+                                       [](const std::pair<int, int> &a, const std::pair<int, int> &b)
+                                       {
+                                           return a.first < b.first;
+                                       });
+            if (it != postings.end() && it->first == docId)
+            {
+                int tf = it->second;
+                double idf = std::log(((N_ - df + 0.5) / (df + 0.5)) + 1.0);
+                double tf_part = (tf * (k1 + 1.0)) / (tf + k1 * denom_norm);
+                score += idf * tf_part;
+            }
+        }
+
+        scored.push_back({docId, score});
+    }
+
+    // Step 5: Sort by score descending, tie-break by docId ascending
+    std::sort(scored.begin(), scored.end(), [](const Scored &a, const Scored &b)
+              {
+        if (a.score != b.score) return a.score > b.score;
+        return a.doc_id < b.doc_id; });
+
+    // Step 6: Return ordered docIds
+    std::vector<int> out;
+    out.reserve(scored.size());
+    for (const auto &s : scored)
+        out.push_back(s.doc_id);
+    return out;
 }
