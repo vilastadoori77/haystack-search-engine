@@ -20,6 +20,7 @@ add_executable(unit_tests
   tests/test_query_parser.cpp
   tests/test_search_service.cpp
   tests/test_bm25.cpp
+  tests/test_snippet.cpp
 )
 
 target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
@@ -32,11 +33,17 @@ add_library(search_core
   src/core/inverted_index.cpp
   src/core/query_parser.cpp
   src/core/search_service.cpp
+  src/core/snippet.cpp
 )
 target_include_directories(search_core PUBLIC src)
 
 target_link_libraries(haystack PRIVATE search_core)
 target_link_libraries(unit_tests PRIVATE search_core)
+
+find_package(Drogon CONFIG REQUIRED)
+add_executable(searchd apps/searchd/main.cpp)
+target_compile_definitions(searchd PRIVATE SEARCHD_PORT=8900)
+target_link_libraries(searchd PRIVATE search_core Drogon::Drogon)
 
 
 

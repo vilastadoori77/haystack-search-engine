@@ -1,0 +1,14 @@
+[
+    {
+        "docId": 1,
+        "text": "Teamcenter migration guide: map attributes, validate schema, run dry-run."
+    },
+    {
+        "docId": 2,
+        "text": "PLM data migration: cleansing, mapping, validation."
+    },
+    {
+        "docId": 3,
+        "text": "Schema validation checklist for integration projects."
+    }
+]

@@ -3,12 +3,16 @@
 #include "tokenizer.h"
 #include <algorithm>
 #include <unordered_set>
+#include "core/snippet.h"
 #include <cmath>
 
 // Adds a document to the tunderlying inverted index
 void SearchService::add_document(int doc_id, const std::string &text)
 {
     idx_.add_document(doc_id, text);
+
+    // Store full text for snippet generation
+    doc_text_[doc_id] = text;
 
     // track document length for BM25
     int dl = (int)tokenize(text).size();
@@ -217,4 +221,26 @@ std::vector<int> SearchService::search(const std::string &query) const
     for (const auto &s : scored)
         out.push_back(s.doc_id);
     return out;
+}
+
+std::vector<SearchHit> SearchService::search_with_snippets(const std::string &query) const
+{
+    auto pq = parse_query(query);
+    // reuse existing BM25-ranked docIDs
+    auto doc_ids = search(query);
+    std::vector<SearchHit> hits;
+    hits.reserve(doc_ids.size());
+
+    for (int id : doc_ids)
+    {
+        // Safety: ensure document text exists
+        auto it = doc_text_.find(id);
+        std::string text = (it != doc_text_.end()) ? it->second : "";
+        SearchHit h;
+        h.docId = id;
+        h.score = 0.0; // keep 0 for now( optional :expose BM25 score later)
+        h.snippet = make_snippet(text, pq.terms);
+        hits.push_back(std::move(h));
+    }
+    return hits;
 }
