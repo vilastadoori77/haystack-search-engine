@@ -4,6 +4,7 @@
 #include <string>
 #include <unordered_map>
 #include "inverted_index.h"
+#include <shared_mutex>
 
 struct SearchHit
 {
@@ -20,6 +21,7 @@ public:
     std::vector<SearchHit> search_with_snippets(const std::string &query) const;
 
 private:
+    mutable std::shared_mutex mu_;
     InvertedIndex idx_;
 
     // docId -> document length (token count)

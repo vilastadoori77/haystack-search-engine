@@ -9,6 +9,7 @@
 // Adds a document to the tunderlying inverted index
 void SearchService::add_document(int doc_id, const std::string &text)
 {
+    std::unique_lock lock(mu_);
     idx_.add_document(doc_id, text);
 
     // Store full text for snippet generation
@@ -121,6 +122,7 @@ static std::vector<int> union_sorted(std::vector<int> a, std::vector<int> b)
 // Searches the inverted index for documents matching the query∏
 std::vector<int> SearchService::search(const std::string &query) const
 {
+    std::shared_lock lock(mu_);
     // Step 1: Parse the query into terms, Not terms, and OR flag
     auto pq = parse_query(query);
 
@@ -225,6 +227,7 @@ std::vector<int> SearchService::search(const std::string &query) const
 
 std::vector<SearchHit> SearchService::search_with_snippets(const std::string &query) const
 {
+    std::shared_lock lock(mu_);
     auto pq = parse_query(query);
     // reuse existing BM25-ranked docIDs
     auto doc_ids = search(query);

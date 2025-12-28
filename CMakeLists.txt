@@ -21,6 +21,7 @@ add_executable(unit_tests
   tests/test_search_service.cpp
   tests/test_bm25.cpp
   tests/test_snippet.cpp
+  tests/test_thread_safety.cpp
 )
 
 target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
