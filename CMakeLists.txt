@@ -37,6 +37,8 @@ add_library(search_core
   src/core/snippet.cpp
 )
 target_include_directories(search_core PUBLIC src)
+target_compile_features(search_core PUBLIC cxx_std_17)
+
 
 target_link_libraries(haystack PRIVATE search_core)
 target_link_libraries(unit_tests PRIVATE search_core)

@@ -19,6 +19,7 @@ public:
     void add_document(int docId, const std::string &text);
     std::vector<int> search(const std::string &query) const;
     std::vector<SearchHit> search_with_snippets(const std::string &query) const;
+    std::vector<std::pair<int, double>> search_scored(const std::string &query) const;
 
 private:
     mutable std::shared_mutex mu_;

@@ -5,6 +5,8 @@
 #include <unordered_set>
 #include "core/snippet.h"
 #include <cmath>
+#include <shared_mutex>
+#include <mutex>
 
 // Adds a document to the tunderlying inverted index
 void SearchService::add_document(int doc_id, const std::string &text)
@@ -122,11 +124,45 @@ static std::vector<int> union_sorted(std::vector<int> a, std::vector<int> b)
 // Searches the inverted index for documents matching the query∏
 std::vector<int> SearchService::search(const std::string &query) const
 {
+    auto scored = search_scored(query);
+    std::vector<int> out;
+    out.reserve(scored.size());
+    for (const auto &p : scored)
+        out.push_back(p.first);
+    return out;
+}
+
+std::vector<SearchHit> SearchService::search_with_snippets(const std::string &query) const
+{
+    auto pq = parse_query(query);
+    auto scored = search_scored(query);
+    std::vector<SearchHit> hits;
+    hits.reserve(scored.size());
+
+    for (const auto &p : scored)
+    {
+        int id = p.first;
+        double score = p.second;
+
+        std::string text;
+        auto it = doc_text_.find(id);
+        if (it != doc_text_.end())
+        {
+            text = it->second;
+        }
+        std::string snippet = make_snippet(text, pq.terms);
+        hits.push_back({id, score, snippet});
+    }
+    return hits;
+}
+
+std::vector<std::pair<int, double>> SearchService::search_scored(const std::string &query) const
+{
+    // std::shared_lock<std::shared_mutex> lock(mu_);
     std::shared_lock lock(mu_);
-    // Step 1: Parse the query into terms, Not terms, and OR flag
     auto pq = parse_query(query);
 
-    // Step 2: Collect candidate documents using AND/OR logic over terms
+    // Step 1: Candidate documents using AND/OR logic over terms
     std::vector<int> result;
     bool first = true;
     for (const auto &term : pq.terms)
@@ -142,12 +178,11 @@ std::vector<int> SearchService::search(const std::string &query) const
             result = pq.is_or ? union_sorted(result, docs) : intersect_sorted(result, docs);
         }
     }
-    // If query has no terms, return empty result
+
     if (first)
         return {};
-    ;
 
-    // Step 3: Build NOT-exclusion set once
+    // Not terms exclusion set
     std::unordered_set<int> excluded;
     for (const auto &t : pq.not_terms)
     {
@@ -157,7 +192,7 @@ std::vector<int> SearchService::search(const std::string &query) const
         }
     }
 
-    // Step 4: BM25  Scoring on candidate docs
+    // Step 2: BM25 Scoring on candidate docs
     const double k1 = 1.2;
     const double b = 0.75;
     struct Scored
@@ -165,7 +200,6 @@ std::vector<int> SearchService::search(const std::string &query) const
         int doc_id;
         double score;
     };
-
     std::vector<Scored> scored;
     scored.reserve(result.size());
 
@@ -174,7 +208,7 @@ std::vector<int> SearchService::search(const std::string &query) const
         if (excluded.count(docId))
             continue;
 
-        // Safety:doc length must exist
+        // Safety: doc length must exist
         auto itLen = doc_len_.find(docId);
         if (itLen == doc_len_.end())
             continue;
@@ -182,7 +216,6 @@ std::vector<int> SearchService::search(const std::string &query) const
         double dl = static_cast<double>(itLen->second);
 
         // Length normalization (avoid division by zero)
-
         double denom_norm = (avgdl_ > 0.0) ? (1.0 - b + b * (dl / avgdl_)) : 1.0;
         double score = 0.0;
 
@@ -191,59 +224,33 @@ std::vector<int> SearchService::search(const std::string &query) const
             int df = idx_.df(term);
             if (df == 0)
                 continue;
-            const auto &postings = idx_.postings(term);
-            // Efficiently find the docID using Binary Search
-            auto it = std::lower_bound(postings.begin(), postings.end(),
-                                       std::make_pair(docId, 0),
-                                       [](const std::pair<int, int> &a, const std::pair<int, int> &b)
-                                       {
-                                           return a.first < b.first;
-                                       });
-            if (it != postings.end() && it->first == docId)
+            int tf = 0;
+            for (const auto &p : idx_.postings(term))
             {
-                int tf = it->second;
-                double idf = std::log(((N_ - df + 0.5) / (df + 0.5)) + 1.0);
-                double tf_part = (tf * (k1 + 1.0)) / (tf + k1 * denom_norm);
-                score += idf * tf_part;
+                if (p.first == docId)
+                {
+                    tf = p.second;
+                    break;
+                }
             }
+            if (tf == 0)
+                continue;
+            double idf = std::log(((N_ - df + 0.5) / (df + 0.5)) + 1.0);
+            double tf_part = (tf * (k1 + 1.0)) / (tf + k1 * denom_norm);
+            score += idf * tf_part;
         }
 
         scored.push_back({docId, score});
     }
 
-    // Step 5: Sort by score descending, tie-break by docId ascending
     std::sort(scored.begin(), scored.end(), [](const Scored &a, const Scored &b)
               {
-        if (a.score != b.score) return a.score > b.score;
-        return a.doc_id < b.doc_id; });
+            if(a.score != b.score) return a.score > b.score;
+            return a.doc_id < b.doc_id; });
 
-    // Step 6: Return ordered docIds
-    std::vector<int> out;
+    std::vector<std::pair<int, double>> out;
     out.reserve(scored.size());
     for (const auto &s : scored)
-        out.push_back(s.doc_id);
+        out.push_back({s.doc_id, s.score});
     return out;
-}
-
-std::vector<SearchHit> SearchService::search_with_snippets(const std::string &query) const
-{
-    std::shared_lock lock(mu_);
-    auto pq = parse_query(query);
-    // reuse existing BM25-ranked docIDs
-    auto doc_ids = search(query);
-    std::vector<SearchHit> hits;
-    hits.reserve(doc_ids.size());
-
-    for (int id : doc_ids)
-    {
-        // Safety: ensure document text exists
-        auto it = doc_text_.find(id);
-        std::string text = (it != doc_text_.end()) ? it->second : "";
-        SearchHit h;
-        h.docId = id;
-        h.score = 0.0; // keep 0 for now( optional :expose BM25 score later)
-        h.snippet = make_snippet(text, pq.terms);
-        hits.push_back(std::move(h));
-    }
-    return hits;
 }
