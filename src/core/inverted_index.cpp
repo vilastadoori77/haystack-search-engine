@@ -1,5 +1,6 @@
 #include "core/inverted_index.h"
 #include "core/tokenizer.h"
+#include <stdexcept>
 
 void InvertedIndex::add_document(int docId, const std::string &text)
 {
@@ -41,4 +42,16 @@ int InvertedIndex::df(const std::string &term) const
     if (it == index_.end())
         return 0;
     return (int)it->second.size();
+}
+
+void InvertedIndex::save(const std::string & /*postings_path*/) const
+{
+    // Implementation for saving the inverted index to disk goes here
+    throw std::runtime_error("InvertedIndex::save not implemented");
+}
+
+void InvertedIndex::load(const std::string & /*postings_path*/)
+{
+    // Implementation for loading the inverted index from disk goes here
+    throw std::runtime_error("InvertedIndex::load not implemented");
 }

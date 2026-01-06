@@ -17,6 +17,8 @@ class SearchService
 {
 public:
     void add_document(int docId, const std::string &text);
+    void save(const std::string &index_dir) const;
+    void load(const std::string &index_dir);
     std::vector<int> search(const std::string &query) const;
     std::vector<SearchHit> search_with_snippets(const std::string &query) const;
     std::vector<std::pair<int, double>> search_scored(const std::string &query) const;

@@ -4,4 +4,9 @@
 *.exe
 *.out
 .DS_Store
+*.pages
+_HAYSTACK_PROJ/*.pages
+
+
+
 

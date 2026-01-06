@@ -6,6 +6,8 @@
 class InvertedIndex
 {
 public:
+    void save(const std::string &postings_path) const;
+    void load(const std::string &postings_path);
     void add_document(int docId, const std::string &text);
 
     // Existing: Returns docId;s that contain term

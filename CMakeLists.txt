@@ -22,13 +22,17 @@ add_executable(unit_tests
   tests/test_bm25.cpp
   tests/test_snippet.cpp
   tests/test_thread_safety.cpp
+  tests/test_persistence.cpp
+  tests/test_persistence_determinism.cpp
+  tests/test_persistence_errors.cpp
+  tests/test_persistence_crash_safety.cpp
+  tests/test_cli_persistence.cpp
 )
 
 target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
 
 enable_testing()
 add_test(NAME unit_tests COMMAND unit_tests)
-
 add_library(search_core
   src/core/tokenizer.cpp
   src/core/inverted_index.cpp

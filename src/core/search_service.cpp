@@ -7,6 +7,7 @@
 #include <cmath>
 #include <shared_mutex>
 #include <mutex>
+#include <stdexcept>
 
 // Adds a document to the tunderlying inverted index
 void SearchService::add_document(int doc_id, const std::string &text)
@@ -253,4 +254,14 @@ std::vector<std::pair<int, double>> SearchService::search_scored(const std::stri
     for (const auto &s : scored)
         out.push_back({s.doc_id, s.score});
     return out;
+}
+
+void SearchService::save(const std::string & /*&index_dir*/) const
+{
+    throw std::runtime_error("SearchService::save not implemented");
+}
+
+void SearchService::load(const std::string & /*&index_dir*/)
+{
+    throw std::runtime_error("SearchService::load not implemented");
 }
