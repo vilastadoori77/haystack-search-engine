@@ -89,6 +89,9 @@ int main(int argc, char **argv)
     if (docs.empty())
         docs = "data/docs.json";
 
+    // Index output directory: CLI only
+    std::string index_dir = get_arg_value(argc, argv, "--out");
+
     // Port: CLI > ENV > fallback
 #ifndef SEARCHD_PORT
 #define SEARCHD_PORT 8900
@@ -110,16 +113,25 @@ int main(int argc, char **argv)
         docs = "data/docs.json";
     load_docs_from_json(s, docs);
 
-    if (has_flag(argc, argv, "--index") && !has_flag(argc, argv, "--serve"))
-    {
-        std::cout << "Indexing built from: " << docs << "\n";
-        return 0;
-    }
-    // Index-only mode: build index and exit
+    // Index-only mode: build index, save it, and exit
     if (index_mode && !has_flag(argc, argv, "--serve"))
     {
-        std::cout << "Indexing completed. Exiting as per --index flag." << std::endl;
-        return 0;
+        if (index_dir.empty())
+        {
+            std::cerr << "Error: --out <index_dir> is required when using --index mode\n";
+            return 1;
+        }
+        try
+        {
+            s.save(index_dir);
+            std::cout << "Indexing completed. Index saved to: " << index_dir << "\n";
+            return 0;
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "Error saving index: " << e.what() << "\n";
+            return 1;
+        }
     }
 
     // Health check

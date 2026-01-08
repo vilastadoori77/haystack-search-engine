@@ -48,6 +48,7 @@ target_link_libraries(haystack PRIVATE search_core)
 target_link_libraries(unit_tests PRIVATE search_core)
 
 find_package(Drogon CONFIG REQUIRED)
+target_link_libraries(search_core PUBLIC Drogon::Drogon)
 add_executable(searchd apps/searchd/main.cpp)
 target_compile_definitions(searchd PRIVATE SEARCHD_PORT=8900)
 target_link_libraries(searchd PRIVATE search_core Drogon::Drogon)
