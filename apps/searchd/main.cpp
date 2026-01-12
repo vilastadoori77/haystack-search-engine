@@ -91,6 +91,7 @@ int main(int argc, char **argv)
 
     // Index output directory: CLI only
     std::string index_dir = get_arg_value(argc, argv, "--out");
+    std::string in_dir = get_arg_value(argc, argv, "--in");
 
     // Port: CLI > ENV > fallback
 #ifndef SEARCHD_PORT
@@ -107,11 +108,13 @@ int main(int argc, char **argv)
     // s.add_document(3, "Schema validation checklist for integration projects.");
     // s.add_document(1, "The quick brown fox jumps over the lazy dog.");
     // load_docs_from_json(s, "data/docs.json");
-    if (docs.empty())
+    // Fix for the bug.  libc++abi: terminating due to uncaught exception of type std::runtime_error: Failed to open docs file: data/docs.json zsh: abort      ./build/searchd --serve --in idx --port 8900 Need to comment lines from 112 to 116
+
+    /*if (docs.empty())
         docs = getenv_str("DOCS_PATH");
     if (docs.empty())
         docs = "data/docs.json";
-    load_docs_from_json(s, docs);
+    load_docs_from_json(s, docs);*/
 
     // Index-only mode: build index, save it, and exit
     if (index_mode && !has_flag(argc, argv, "--serve"))
@@ -119,18 +122,41 @@ int main(int argc, char **argv)
         if (index_dir.empty())
         {
             std::cerr << "Error: --out <index_dir> is required when using --index mode\n";
-            return 1;
+            return 2;
         }
+
         try
         {
+            load_docs_from_json(s, docs); // <-- ONLY here in index mode
             s.save(index_dir);
             std::cout << "Indexing completed. Index saved to: " << index_dir << "\n";
             return 0;
         }
         catch (const std::exception &e)
         {
-            std::cerr << "Error saving index: " << e.what() << "\n";
-            return 1;
+            std::cerr << "Error indexing/saving: " << e.what() << "\n";
+            return 3;
+        }
+    }
+
+    // Serve mode:: load persisted index, then run HTTP server
+
+    if (serve_mode)
+    {
+        if (in_dir.empty())
+        {
+            std::cerr << "Error: --in <index_dir> is required when using --serve mode\n";
+            return 2;
+        }
+
+        try
+        {
+            s.load(in_dir); // <-- ONLY here in serve mode
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "Error loading index: " << e.what() << "\n";
+            return 3;
         }
     }
 
@@ -195,6 +221,9 @@ int main(int argc, char **argv)
     // drogon::app().run();
 
     drogon::app().addListener("0.0.0.0", port);
-    std::cout << "Serving on port " << port << "using docs: " << docs << "\n";
+    // std::cout << "Serving on port " << port << "using docs: " << docs << "\n";
+
+    std::cout << "Serving on port " << port << " using index: " << in_dir << "\n";
+
     drogon::app().run();
 }
