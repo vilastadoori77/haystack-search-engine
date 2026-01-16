@@ -27,6 +27,10 @@ add_executable(unit_tests
   tests/test_persistence_errors.cpp
   tests/test_persistence_crash_safety.cpp
   tests/test_cli_persistence.cpp
+  tests/test_cli_validation.cpp
+  tests/test_cli_lifecycle.cpp
+  tests/test_cli_error_messages.cpp
+  tests/test_cli_exit_codes.cpp
 )
 
 target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
