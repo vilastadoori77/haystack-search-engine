@@ -31,6 +31,12 @@ add_executable(unit_tests
   tests/test_cli_lifecycle.cpp
   tests/test_cli_error_messages.cpp
   tests/test_cli_exit_codes.cpp
+  tests/test_runtime_port_binding.cpp
+  tests/test_runtime_startup_message.cpp
+  tests/test_runtime_shutdown.cpp
+  tests/test_runtime_index_validation.cpp
+  tests/test_runtime_failure_ordering.cpp
+  tests/test_runtime_output_discipline.cpp
 )
 
 target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)

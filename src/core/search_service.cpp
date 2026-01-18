@@ -403,7 +403,8 @@ void SearchService::load(const std::string &index_dir)
     int schema_version = meta.get("schema_version", 0).asInt();
     if (schema_version != 1)
     {
-        throw std::runtime_error("Unsupported schema_version: " + std::to_string(schema_version));
+        // Per Phase 2.3 spec: Error message format "Unsupported schema version: <version>"
+        throw std::runtime_error("Unsupported schema version: " + std::to_string(schema_version));
     }
 
     // Restore corpus stats
