@@ -116,13 +116,24 @@ static int run_command_capture_output(const std::string &cmd, std::string &stdou
 static std::string create_temp_dir()
 {
     std::string base = "/tmp/haystack_test_";
+    // Use PID + random number to avoid collisions
+    pid_t pid = getpid();
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 999999);
+    
     for (int i = 0; i < 1000; ++i)
     {
-        std::string dir = base + std::to_string(i);
+        std::string dir = base + std::to_string(pid) + "_" + std::to_string(dis(gen));
         if (!fs::exists(dir))
         {
-            fs::create_directories(dir);
-            return dir;
+            try {
+                fs::create_directories(dir);
+                return dir;
+            } catch (...) {
+                // Directory might have been created by another process, try again
+                continue;
+            }
         }
     }
     throw std::runtime_error("Could not create temp directory");

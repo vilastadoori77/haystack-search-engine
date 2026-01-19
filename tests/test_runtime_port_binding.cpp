@@ -108,13 +108,24 @@ static int run_command_capture_output(const std::string &cmd, std::string &stdou
 static std::string create_temp_dir()
 {
     std::string base = "/tmp/haystack_test_";
+    // Use PID + random number to avoid collisions
+    pid_t pid = getpid();
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 999999);
+    
     for (int i = 0; i < 1000; ++i)
     {
-        std::string dir = base + std::to_string(i);
+        std::string dir = base + std::to_string(pid) + "_" + std::to_string(dis(gen));
         if (!fs::exists(dir))
         {
-            fs::create_directories(dir);
-            return dir;
+            try {
+                fs::create_directories(dir);
+                return dir;
+            } catch (...) {
+                // Directory might have been created by another process, try again
+                continue;
+            }
         }
     }
     throw std::runtime_error("Could not create temp directory");
@@ -196,14 +207,24 @@ TEST_CASE("Port binding failure: port already in use, exit code 3")
     std::string index_dir = create_test_index();
     std::string searchd_path = find_searchd_path();
     
-    // Use random port to avoid conflicts
+    // Try multiple random ports until we find one we can bind to
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(9000, 9999);
-    int test_port = dis(gen);
+    int test_port = -1;
+    int sockfd = -1;
     
-    // Bind the port before searchd tries to use it
-    int sockfd = bind_port(test_port);
+    // Try up to 50 ports to find one that's available
+    for (int attempt = 0; attempt < 50; ++attempt)
+    {
+        test_port = dis(gen);
+        sockfd = bind_port(test_port);
+        if (sockfd >= 0)
+        {
+            break;
+        }
+    }
+    
     REQUIRE(sockfd >= 0);
     
     std::string cmd = searchd_path + " --serve --in \"" + index_dir + "\" --port " + std::to_string(test_port);
@@ -228,12 +249,24 @@ TEST_CASE("Port binding failure: no startup message on binding failure")
     std::string index_dir = create_test_index();
     std::string searchd_path = find_searchd_path();
     
+    // Try multiple random ports until we find one we can bind to
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(9000, 9999);
-    int test_port = dis(gen);
+    int test_port = -1;
+    int sockfd = -1;
     
-    int sockfd = bind_port(test_port);
+    // Try up to 50 ports to find one that's available
+    for (int attempt = 0; attempt < 50; ++attempt)
+    {
+        test_port = dis(gen);
+        sockfd = bind_port(test_port);
+        if (sockfd >= 0)
+        {
+            break;
+        }
+    }
+    
     REQUIRE(sockfd >= 0);
     
     std::string cmd = searchd_path + " --serve --in \"" + index_dir + "\" --port " + std::to_string(test_port);

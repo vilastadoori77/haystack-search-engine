@@ -37,12 +37,22 @@ add_executable(unit_tests
   tests/test_runtime_index_validation.cpp
   tests/test_runtime_failure_ordering.cpp
   tests/test_runtime_output_discipline.cpp
+  tests/test_runtime_readiness.cpp
+  tests/test_runtime_health_endpoint.cpp
+  tests/test_runtime_safety.cpp
+  tests/test_runtime_shutdown_idempotency.cpp
 )
 
 target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
 
 enable_testing()
 add_test(NAME unit_tests COMMAND unit_tests)
+# Set timeout for tests (300 seconds = 5 minutes) to prevent ctest from hanging
+# Run in test mode (don't wait for user input) and allow parallel execution
+set_tests_properties(unit_tests PROPERTIES 
+    TIMEOUT 300
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+)
 add_library(search_core
   src/core/tokenizer.cpp
   src/core/inverted_index.cpp

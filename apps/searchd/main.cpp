@@ -18,14 +18,24 @@
 
 namespace fs = std::filesystem;
 
+// Phase 2.4: Server readiness tracking
+static std::atomic<bool> g_server_ready{false};
+
 // Phase 2.3: Signal handling for graceful shutdown
+// Phase 2.4: Shutdown idempotency - prevent duplicate signal handling
 static std::atomic<bool> g_shutdown_requested{false};
+static std::atomic<bool> g_shutdown_in_progress{false};
 static void signal_handler(int signal)
 {
     if (signal == SIGINT || signal == SIGTERM)
     {
-        g_shutdown_requested = true;
-        drogon::app().quit();
+        // Phase 2.4: Idempotent signal handling - ignore if already shutting down
+        bool expected = false;
+        if (g_shutdown_in_progress.compare_exchange_strong(expected, true))
+        {
+            g_shutdown_requested = true;
+            drogon::app().quit();
+        }
     }
 }
 
@@ -328,16 +338,29 @@ int main(int argc, char **argv)
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    // Health check
+    // Phase 2.4: Health endpoint with readiness and shutdown state checks
     drogon::app().registerHandler(
         "/health",
         [](const drogon::HttpRequestPtr &req,
            std::function<void(const drogon::HttpResponsePtr &)> &&callback)
         {
             auto resp = drogon::HttpResponse::newHttpResponse();
-            resp->setStatusCode(drogon::k200OK);
-            resp->setContentTypeCode(drogon::CT_TEXT_PLAIN);
-            resp->setBody("OK");
+            
+            // Phase 2.4: Return HTTP 200 ONLY when ready and not shutting down
+            if (g_server_ready.load() && !g_shutdown_in_progress.load())
+            {
+                resp->setStatusCode(drogon::k200OK);
+                resp->setContentTypeCode(drogon::CT_TEXT_PLAIN);
+                // Phase 2.4: Deterministic, constant response body
+                resp->setBody("OK");
+            }
+            else
+            {
+                // Phase 2.4: Return non-200 when not ready or shutting down
+                resp->setStatusCode(drogon::k503ServiceUnavailable);
+                resp->setContentTypeCode(drogon::CT_TEXT_PLAIN);
+                resp->setBody("");
+            }
             callback(resp);
         });
     // Search endpoint
@@ -428,6 +451,13 @@ int main(int argc, char **argv)
     drogon::app().registerBeginningAdvice([port, in_dir]()
                                           { 
                                             // Message already printed above, this callback should not execute
+                                          });
+
+    // Phase 2.4: Register callback to mark server as ready after it starts accepting connections
+    drogon::app().registerBeginningAdvice([]()
+                                          {
+                                            // Phase 2.4: Mark server as ready after HTTP server starts accepting connections
+                                            g_server_ready.store(true);
                                           });
 
     // Register the listener - actual binding happens during run()
