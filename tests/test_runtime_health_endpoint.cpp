@@ -61,16 +61,19 @@ static std::string create_temp_dir()
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(0, 999999);
-    
+
     for (int i = 0; i < 1000; ++i)
     {
         std::string dir = base + std::to_string(pid) + "_" + std::to_string(dis(gen));
         if (!fs::exists(dir))
         {
-            try {
+            try
+            {
                 fs::create_directories(dir);
                 return dir;
-            } catch (...) {
+            }
+            catch (...)
+            {
                 // Directory might have been created by another process, try again
                 continue;
             }
@@ -90,16 +93,16 @@ static void cleanup_temp_dir(const std::string &dir)
 static std::string create_test_index()
 {
     std::string index_dir = create_temp_dir();
-    
+
     std::ofstream meta(index_dir + "/index_meta.json");
     meta << R"({"schema_version": 1, "N": 2, "avgdl": 5.0})";
     meta.close();
-    
+
     std::ofstream docs(index_dir + "/docs.jsonl");
     docs << R"({"docId": 1, "text": "hello world"})" << "\n";
     docs << R"({"docId": 2, "text": "test document"})" << "\n";
     docs.close();
-    
+
     std::ofstream postings(index_dir + "/postings.bin", std::ios::binary);
     std::uint64_t term_count = 0;
     unsigned char bytes[8] = {
@@ -110,24 +113,23 @@ static std::string create_test_index()
         (unsigned char)((term_count >> 32) & 0xFF),
         (unsigned char)((term_count >> 40) & 0xFF),
         (unsigned char)((term_count >> 48) & 0xFF),
-        (unsigned char)((term_count >> 56) & 0xFF)
-    };
-    postings.write(reinterpret_cast<const char*>(bytes), 8);
+        (unsigned char)((term_count >> 56) & 0xFF)};
+    postings.write(reinterpret_cast<const char *>(bytes), 8);
     postings.close();
-    
+
     return index_dir;
 }
 
 static std::string http_get_body(const std::string &url)
 {
     std::string cmd = "curl -s --max-time 2 --connect-timeout 1 \"" + url + "\" 2>/dev/null || echo \"\"";
-    
+
     FILE *pipe = popen(cmd.c_str(), "r");
     if (!pipe)
     {
         return "";
     }
-    
+
     char buffer[4096];
     std::string result;
     while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
@@ -135,20 +137,20 @@ static std::string http_get_body(const std::string &url)
         result += buffer;
     }
     pclose(pipe);
-    
+
     return result;
 }
 
 static int http_get_status_code(const std::string &url)
 {
     std::string cmd = "curl -s -o /dev/null -w \"%{http_code}\" --max-time 2 --connect-timeout 1 \"" + url + "\" 2>/dev/null || echo \"-1\"";
-    
+
     FILE *pipe = popen(cmd.c_str(), "r");
     if (!pipe)
     {
         return -1;
     }
-    
+
     char buffer[128];
     std::string result;
     while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
@@ -156,17 +158,17 @@ static int http_get_status_code(const std::string &url)
         result += buffer;
     }
     int pclose_status = pclose(pipe);
-    
+
     result.erase(std::remove(result.begin(), result.end(), '\n'), result.end());
     result.erase(std::remove(result.begin(), result.end(), '\r'), result.end());
     result.erase(std::remove(result.begin(), result.end(), ' '), result.end());
-    
+
     // If curl command failed, return -1
     if (pclose_status != 0 || result.empty() || result == "-1")
     {
         return -1;
     }
-    
+
     try
     {
         int code = std::stoi(result);
@@ -187,17 +189,17 @@ TEST_CASE("/health returns deterministic constant response body")
 {
     // Save original signal handler and ignore SIGTERM to prevent signal propagation
     void (*old_handler)(int) = signal(SIGTERM, SIG_IGN);
-    
+
     std::string index_dir = create_test_index();
     std::string searchd_path = find_searchd_path();
-    
+
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(9000, 9999);
     int test_port = dis(gen);
-    
+
     std::string cmd = searchd_path + " --serve --in \"" + index_dir + "\" --port " + std::to_string(test_port);
-    
+
     pid_t pid = fork();
     if (pid == 0)
     {
@@ -219,14 +221,14 @@ TEST_CASE("/health returns deterministic constant response body")
                 break;
             }
         }
-        
+
         // Get multiple responses and verify they are identical (before cleanup)
         std::string response1 = http_get_body("http://localhost:" + std::to_string(test_port) + "/health");
         usleep(50000); // 50ms between requests
         std::string response2 = http_get_body("http://localhost:" + std::to_string(test_port) + "/health");
         usleep(50000);
         std::string response3 = http_get_body("http://localhost:" + std::to_string(test_port) + "/health");
-        
+
         // Cleanup process - wait for it to exit
         int status;
         bool process_exited = false;
@@ -259,14 +261,14 @@ TEST_CASE("/health returns deterministic constant response body")
             }
             usleep(100000); // 100ms
         }
-        
+
         // If still running, force kill
         if (!process_exited)
         {
             kill(pid, SIGKILL);
             waitpid(pid, &status, 0);
         }
-        
+
         // Now verify all collected data
         REQUIRE(server_ready);
         REQUIRE(status_code == 200);
@@ -275,10 +277,10 @@ TEST_CASE("/health returns deterministic constant response body")
         bool no_timestamp = (response1.find("20") == std::string::npos) || (response1.size() < 10);
         REQUIRE(no_timestamp);
     }
-    
+
     // Restore original signal handler
     signal(SIGTERM, old_handler);
-    
+
     cleanup_temp_dir(index_dir);
 }
 
@@ -286,17 +288,17 @@ TEST_CASE("/health returns non-200 when shutting down")
 {
     // Save original signal handler and ignore SIGTERM to prevent signal propagation
     void (*old_handler)(int) = signal(SIGTERM, SIG_IGN);
-    
+
     std::string index_dir = create_test_index();
     std::string searchd_path = find_searchd_path();
-    
+
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(9000, 9999);
     int test_port = dis(gen);
-    
+
     std::string cmd = searchd_path + " --serve --in \"" + index_dir + "\" --port " + std::to_string(test_port) + " >/dev/null 2>/dev/null";
-    
+
     pid_t pid = fork();
     if (pid == 0)
     {
@@ -309,7 +311,7 @@ TEST_CASE("/health returns non-200 when shutting down")
     {
         // Wait for the child to set up its process group and start
         usleep(200000); // 200ms
-        
+
         // Wait for server to become ready - poll /health endpoint
         bool server_ready = false;
         for (int attempt = 0; attempt < 30; ++attempt)
@@ -321,12 +323,12 @@ TEST_CASE("/health returns non-200 when shutting down")
                 break;
             }
         }
-        
+
         REQUIRE(server_ready); // Server must be ready before testing shutdown
-        
+
         // Give server a moment to fully stabilize
         usleep(300000); // 300ms
-        
+
         // Send shutdown signal to process group (negative PID sends to process group)
         // This ensures signals reach searchd even if it's running in a shell
         if (kill(-pid, SIGTERM) == -1 && errno == ESRCH)
@@ -334,12 +336,12 @@ TEST_CASE("/health returns non-200 when shutting down")
             // Process group doesn't exist, fall back to sending to process directly
             kill(pid, SIGTERM);
         }
-        
+
         // Give signal time to be processed by the server
         // The signal handler runs asynchronously, so we need to wait for it to set g_shutdown_in_progress
         // Then we need to wait for any in-flight HTTP requests to complete
         usleep(200000); // 200ms initial delay
-        
+
         // Check /health multiple times after shutdown signal - should return non-200 during shutdown
         // Keep checking until we get non-200 or timeout
         int status_code = -1;
@@ -354,7 +356,7 @@ TEST_CASE("/health returns non-200 when shutting down")
                 break; // Got non-200, which is what we expect
             }
         }
-        
+
         // If we never got non-200, the server might have exited before we could check
         // In that case, verify the process has exited
         if (!got_non_200)
@@ -375,7 +377,7 @@ TEST_CASE("/health returns non-200 when shutting down")
                 status_code = 503; // Service Unavailable
             }
         }
-        
+
         // Wait for process to exit - use blocking wait with timeout
         int status;
         bool process_exited = false;
@@ -394,7 +396,7 @@ TEST_CASE("/health returns non-200 when shutting down")
             }
             usleep(100000); // 100ms
         }
-        
+
         // If still running, force kill and wait
         if (!process_exited)
         {
@@ -402,13 +404,13 @@ TEST_CASE("/health returns non-200 when shutting down")
             // Blocking wait to ensure process is fully reaped
             waitpid(pid, &status, 0);
         }
-        
+
         // Phase 2.4: /health MUST return non-200 when shutting down
         REQUIRE(status_code != 200);
     }
-    
+
     // Restore original signal handler
     signal(SIGTERM, old_handler);
-    
+
     cleanup_temp_dir(index_dir);
 }
