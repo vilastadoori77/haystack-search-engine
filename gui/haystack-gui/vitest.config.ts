@@ -7,5 +7,10 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // Reduce CPU usage - run tests sequentially instead of in parallel
+    maxWorkers: 1,
+    minWorkers: 1,
+    // Reduce test timeout for faster failure detection
+    testTimeout: 10000,
   },
 })

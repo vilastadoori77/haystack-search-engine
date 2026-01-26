@@ -17,7 +17,7 @@ describe('searchApi', () => {
 
   beforeEach(() => {
     // Create new mock adapter for each test
-    mockAdapter = new MockAdapter(axios);
+    mockAdapter = new MockAdapter(axios, { delayResponse: 0 });
   });
 
   afterEach(() => {
@@ -45,7 +45,9 @@ describe('searchApi', () => {
 
       // Then: GET request to /search?q=migration%20validation&k=10
       expect(mockAdapter.history.get.length).toBe(1);
-      expect(mockAdapter.history.get[0].url).toBe(expectedUrl);
+      const firstRequest = mockAdapter.history.get[0];
+      expect(firstRequest).toBeDefined();
+      expect(firstRequest?.url).toBe(expectedUrl);
     });
 
     // TC-050: search() includes k parameter in request
@@ -66,7 +68,10 @@ describe('searchApi', () => {
 
       // Then: Request includes k=25 parameter
       expect(mockAdapter.history.get.length).toBe(1);
-      const requestUrl = mockAdapter.history.get[0].url;
+      const firstRequest = mockAdapter.history.get[0];
+      expect(firstRequest).toBeDefined();
+      const requestUrl = firstRequest?.url;
+      expect(requestUrl).toBeDefined();
       expect(requestUrl).toContain('k=25');
     });
 
@@ -76,12 +81,19 @@ describe('searchApi', () => {
       const query = 'test';
       const k = 10;
 
-      mockAdapter.onGet('/search').networkError();
+      // Mock network error - use exact URL string like working tests
+      // networkErrorOnce() creates error with no response, which triggers NetworkError
+      mockAdapter.onGet('/search?q=test&k=10').networkErrorOnce();
 
       // When: search("test", 10) called
       // Then: NetworkError thrown with message "Cannot connect to server..."
-      await expect(search(query, k)).rejects.toThrow(NetworkError);
-      await expect(search(query, k)).rejects.toThrow(/Cannot connect to server/);
+      try {
+        await search(query, k);
+        expect.fail('Should have thrown NetworkError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(NetworkError);
+        expect((error as Error).message).toMatch(/Cannot connect to server/);
+      }
     });
 
     // TC-052: search() throws TimeoutError on timeout
@@ -90,13 +102,19 @@ describe('searchApi', () => {
       const query = 'test';
       const k = 10;
 
-      // Mock timeout by using a delay longer than 5s
-      mockAdapter.onGet('/search').timeout();
+      // Mock timeout - use exact URL string like working tests
+      // timeoutOnce() sets code to 'ECONNABORTED', which triggers TimeoutError
+      mockAdapter.onGet('/search?q=test&k=10').timeoutOnce();
 
       // When: search("test", 10) called
       // Then: TimeoutError thrown after 5 seconds
-      await expect(search(query, k)).rejects.toThrow(TimeoutError);
-      await expect(search(query, k)).rejects.toThrow(/Request timeout/);
+      try {
+        await search(query, k);
+        expect.fail('Should have thrown TimeoutError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(TimeoutError);
+        expect((error as Error).message).toMatch(/Request timeout/);
+      }
     });
 
     // TC-053: search() throws HttpError on 4xx/5xx response
@@ -106,7 +124,8 @@ describe('searchApi', () => {
       const k = 10;
       const statusCode = 500;
 
-      mockAdapter.onGet('/search').reply(statusCode, { error: 'Internal Server Error' });
+      // Use exact URL string like working tests
+      mockAdapter.onGet('/search?q=test&k=10').reply(statusCode, { error: 'Internal Server Error' });
 
       // When: search("test", 10) called
       // Then: HttpError thrown with status 500
@@ -128,12 +147,18 @@ describe('searchApi', () => {
       const query = 'test';
       const k = 10;
 
-      mockAdapter.onGet('/search').reply(200, 'invalid json response');
+      // Use exact URL string like working tests
+      mockAdapter.onGet('/search?q=test&k=10').reply(200, 'invalid json response');
 
       // When: search("test", 10) called
       // Then: InvalidResponseError thrown
-      await expect(search(query, k)).rejects.toThrow(InvalidResponseError);
-      await expect(search(query, k)).rejects.toThrow(/Invalid server response/);
+      try {
+        await search(query, k);
+        expect.fail('Should have thrown InvalidResponseError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(InvalidResponseError);
+        expect((error as Error).message).toMatch(/Invalid server response/);
+      }
     });
 
     // TC-055: search() throws InvalidResponseError on missing fields
@@ -147,12 +172,18 @@ describe('searchApi', () => {
         // Missing 'results' field
       };
 
-      mockAdapter.onGet('/search').reply(200, invalidResponse);
+      // Use exact URL string like working tests
+      mockAdapter.onGet('/search?q=test&k=10').reply(200, invalidResponse);
 
       // When: search("test", 10) called
       // Then: InvalidResponseError thrown
-      await expect(search(query, k)).rejects.toThrow(InvalidResponseError);
-      await expect(search(query, k)).rejects.toThrow(/Invalid server response/);
+      try {
+        await search(query, k);
+        expect.fail('Should have thrown InvalidResponseError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(InvalidResponseError);
+        expect((error as Error).message).toMatch(/Invalid server response/);
+      }
     });
 
     // TC-056: search() validates query is non-empty
@@ -208,7 +239,7 @@ describe('searchApi', () => {
         ],
       };
 
-      mockAdapter.onGet('/search').reply(200, mockResponse);
+      mockAdapter.onGet('/search?q=test&k=10').reply(200, mockResponse);
 
       // When: search("test", 10) called
       const result = await search(query, k);
@@ -217,12 +248,15 @@ describe('searchApi', () => {
       expect(result).toBeDefined();
       expect(result.query).toBe('test');
       expect(result.results).toHaveLength(2);
-      expect(result.results[0]).toHaveProperty('docId');
-      expect(result.results[0]).toHaveProperty('score');
-      expect(result.results[0]).toHaveProperty('snippet');
-      expect(result.results[0].docId).toBe(1);
-      expect(result.results[0].score).toBe(2.456);
-      expect(result.results[0].snippet).toBe('Test snippet');
+      // TypeScript strict mode: check that first result exists before accessing properties
+      const firstResult = result.results[0];
+      expect(firstResult).toBeDefined();
+      expect(firstResult).toHaveProperty('docId');
+      expect(firstResult).toHaveProperty('score');
+      expect(firstResult).toHaveProperty('snippet');
+      expect(firstResult?.docId).toBe(1);
+      expect(firstResult?.score).toBe(2.456);
+      expect(firstResult?.snippet).toBe('Test snippet');
     });
   });
 
@@ -344,7 +378,8 @@ describe('searchApi', () => {
         ],
       };
 
-      mockAdapter.onGet('/search').reply(200, invalidResponse);
+      // Use exact URL string like other tests
+      mockAdapter.onGet('/search?q=test&k=10').reply(200, invalidResponse);
 
       // When: search("test", 10) called
       // Then: InvalidResponseError thrown
