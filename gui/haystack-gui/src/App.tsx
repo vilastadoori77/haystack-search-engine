@@ -107,7 +107,7 @@ function App() {
     try {
       const response = await search(query, limit);
       setResults(response.results);
-      
+
       // Calculate latency and set metrics
       const latency = Date.now() - startTime;
       setMetrics({
@@ -127,7 +127,7 @@ function App() {
   // Handle example query selection
   const handleExampleQuerySelect = useCallback(async (selectedQuery: string) => {
     setQuery(selectedQuery);
-    
+
     // Auto-execute search
     setIsLoading(true);
     setError(null);
@@ -136,7 +136,7 @@ function App() {
     try {
       const response = await search(selectedQuery, limit);
       setResults(response.results);
-      
+
       const latency = Date.now() - startTime;
       setMetrics({
         query: response.query,
@@ -158,7 +158,7 @@ function App() {
     setResults([]);
     setError(null);
     setMetrics(null);
-  });
+  }, []);
 
   // Handle health refresh
   const handleHealthRefresh = useCallback(async () => {

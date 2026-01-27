@@ -24,12 +24,8 @@
  * @param query - The search query string (used to determine if empty state should show)
  */
 import ResultCard from './ResultCard';
-
-interface SearchResult {
-  docId: number;
-  score: number;
-  snippet: string;
-}
+import { SearchResult } from '../types/search';
+import LoadingSpinner from './LoadingSpinner';
 
 interface ResultsListProps {
   results: SearchResult[];
@@ -46,16 +42,7 @@ export default function ResultsList({
 }: ResultsListProps) {
   // TC-022: Loading state takes priority over results
   if (isLoading) {
-    return (
-      <div className="text-center py-8">
-        <div
-          role="status"
-          aria-busy="true"
-          className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"
-        />
-        <p className="text-gray-600">Searching...</p>
-      </div>
-    );
+    return <LoadingSpinner />;
   }
 
   // TC-023: Error state takes priority over results

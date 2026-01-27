@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import HealthStatus from './HealthStatus';
 
@@ -24,18 +24,16 @@ describe('HealthStatus', () => {
     vi.useRealTimers();
   });
 
-  const defaultProps: HealthStatusProps = {
-    health: 'unknown',
-    lastChecked: null,
-    onRefresh: mockOnRefresh,
-    isRefreshing: false,
-  };
-
   // TC-029: Renders green dot when healthy
   it('TC-029: renders green dot when healthy', () => {
     // Given: HealthStatus component with health="healthy"
     // When: Component is rendered
-    render(<HealthStatus {...defaultProps} health="healthy" />);
+    render(<HealthStatus
+      health="healthy"
+      lastChecked={null}
+      onRefresh={mockOnRefresh}
+      isRefreshing={false}
+    />);
 
     // Then: Green dot indicator is displayed
     const indicator = screen.getByRole('status', { hidden: true }) || screen.getByTestId('health-indicator');
@@ -47,7 +45,12 @@ describe('HealthStatus', () => {
   it('TC-030: renders red dot when unhealthy', () => {
     // Given: HealthStatus component with health="unhealthy"
     // When: Component is rendered
-    render(<HealthStatus {...defaultProps} health="unhealthy" />);
+    render(<HealthStatus
+      health="unhealthy"
+      lastChecked={null}
+      onRefresh={mockOnRefresh}
+      isRefreshing={false}
+    />);
 
     // Then: Red dot indicator is displayed
     const indicator = screen.getByRole('status', { hidden: true }) || screen.getByTestId('health-indicator');
@@ -59,7 +62,12 @@ describe('HealthStatus', () => {
   it('TC-031: renders gray dot when unknown', () => {
     // Given: HealthStatus component with health="unknown"
     // When: Component is rendered
-    render(<HealthStatus {...defaultProps} health="unknown" />);
+    render(<HealthStatus
+      health="unknown"
+      lastChecked={null}
+      onRefresh={mockOnRefresh}
+      isRefreshing={false}
+    />);
 
     // Then: Gray dot indicator is displayed
     const indicator = screen.getByRole('status', { hidden: true }) || screen.getByTestId('health-indicator');
@@ -71,7 +79,12 @@ describe('HealthStatus', () => {
   it('TC-032: displays "Healthy" text when healthy', () => {
     // Given: HealthStatus component with health="healthy"
     // When: Component is rendered
-    render(<HealthStatus {...defaultProps} health="healthy" />);
+    render(<HealthStatus
+      health="healthy"
+      lastChecked={null}
+      onRefresh={mockOnRefresh}
+      isRefreshing={false}
+    />);
 
     // Then: "Healthy" text is displayed
     expect(screen.getByText('Healthy')).toBeInTheDocument();
@@ -81,7 +94,12 @@ describe('HealthStatus', () => {
   it('TC-033: displays "Unavailable" text when unhealthy', () => {
     // Given: HealthStatus component with health="unhealthy"
     // When: Component is rendered
-    render(<HealthStatus {...defaultProps} health="unhealthy" />);
+    render(<HealthStatus
+      health="unhealthy"
+      lastChecked={null}
+      onRefresh={mockOnRefresh}
+      isRefreshing={false}
+    />);
 
     // Then: "Unavailable" text is displayed
     expect(screen.getByText('Unavailable')).toBeInTheDocument();
@@ -92,7 +110,12 @@ describe('HealthStatus', () => {
     // Given: HealthStatus component with lastChecked=2 seconds ago
     const twoSecondsAgo = new Date(Date.now() - 2000);
     // When: Component is rendered
-    render(<HealthStatus {...defaultProps} lastChecked={twoSecondsAgo} />);
+    render(<HealthStatus
+      health="unknown"
+      lastChecked={twoSecondsAgo}
+      onRefresh={mockOnRefresh}
+      isRefreshing={false}
+    />);
 
     // Then: Timestamp displays "2s ago"
     expect(screen.getByText(/2s ago/i)).toBeInTheDocument();
@@ -102,21 +125,30 @@ describe('HealthStatus', () => {
   it('TC-035: displays "Never" when lastChecked is null', () => {
     // Given: HealthStatus component with lastChecked=null
     // When: Component is rendered
-    render(<HealthStatus {...defaultProps} lastChecked={null} />);
+    render(<HealthStatus
+      health="unknown"
+      lastChecked={null}
+      onRefresh={mockOnRefresh}
+      isRefreshing={false}
+    />);
 
-    // Then: "Never" text is displayed
-    expect(screen.getByText('Never')).toBeInTheDocument();
+    // Then: "Last checked: Never" text is displayed
+    expect(screen.getByText('Last checked: Never')).toBeInTheDocument();
   });
 
   // TC-036: Calls onRefresh when refresh button clicked
   it('TC-036: calls onRefresh when refresh button clicked', async () => {
     // Given: HealthStatus component with refresh button
-    const user = userEvent.setup({ delay: null });
-    render(<HealthStatus {...defaultProps} />);
+    render(<HealthStatus
+      health="unknown"
+      lastChecked={null}
+      onRefresh={mockOnRefresh}
+      isRefreshing={false}
+    />);
 
     // When: Refresh button is clicked
     const refreshButton = screen.getByRole('button', { name: /refresh/i });
-    await user.click(refreshButton);
+    fireEvent.click(refreshButton);
 
     // Then: onRefresh is called
     expect(mockOnRefresh).toHaveBeenCalledTimes(1);
@@ -126,7 +158,12 @@ describe('HealthStatus', () => {
   it('TC-037: refresh button disabled when refreshing', () => {
     // Given: HealthStatus component with isRefreshing=true
     // When: Component is rendered
-    render(<HealthStatus {...defaultProps} isRefreshing={true} />);
+    render(<HealthStatus
+      health="unknown"
+      lastChecked={null}
+      onRefresh={mockOnRefresh}
+      isRefreshing={true}
+    />);
 
     // Then: Refresh button is disabled
     const refreshButton = screen.getByRole('button', { name: /refresh/i });
@@ -137,7 +174,12 @@ describe('HealthStatus', () => {
   it('TC-038: timestamp updates over time', () => {
     // Given: HealthStatus component with lastChecked=5 seconds ago
     const fiveSecondsAgo = new Date(Date.now() - 5000);
-    const { rerender } = render(<HealthStatus {...defaultProps} lastChecked={fiveSecondsAgo} />);
+    const { rerender } = render(<HealthStatus
+      health="unknown"
+      lastChecked={fiveSecondsAgo}
+      onRefresh={mockOnRefresh}
+      isRefreshing={false}
+    />);
 
     // When: Component initially renders
     // Then: Timestamp displays "5s ago"
@@ -145,7 +187,12 @@ describe('HealthStatus', () => {
 
     // When: Time advances by 2 seconds
     vi.advanceTimersByTime(2000);
-    rerender(<HealthStatus {...defaultProps} lastChecked={fiveSecondsAgo} />);
+    rerender(<HealthStatus
+      health="unknown"
+      lastChecked={fiveSecondsAgo}
+      onRefresh={mockOnRefresh}
+      isRefreshing={false}
+    />);
 
     // Then: Timestamp updates to "7s ago"
     expect(screen.getByText(/7s ago/i)).toBeInTheDocument();

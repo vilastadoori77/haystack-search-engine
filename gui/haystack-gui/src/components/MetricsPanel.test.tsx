@@ -8,10 +8,6 @@ interface SearchMetrics {
   latency: number; // milliseconds
 }
 
-interface MetricsPanelProps {
-  metrics: SearchMetrics | null;
-}
-
 describe('MetricsPanel', () => {
   const mockMetrics: SearchMetrics = {
     query: 'migration',
@@ -47,7 +43,8 @@ describe('MetricsPanel', () => {
     render(<MetricsPanel metrics={mockMetrics} />);
 
     // Then: Query text displays "Query: migration"
-    expect(screen.getByText(/query:\s*migration/i)).toBeInTheDocument();
+    expect(screen.getByText('Query:')).toBeInTheDocument();
+    expect(screen.getByText('migration')).toBeInTheDocument();
   });
 
   // TC-042: Displays result count
@@ -67,7 +64,11 @@ describe('MetricsPanel', () => {
     render(<MetricsPanel metrics={mockMetrics} />);
 
     // Then: Latency text displays "Latency: 123ms"
-    expect(screen.getByText(/latency:\s*123\s*ms/i)).toBeInTheDocument();
+    const latencyParagraph = screen.getByText((content, element) => {
+      return element?.tagName === 'P' &&
+        element?.textContent?.trim() === 'Latency: 123ms';
+    });
+    expect(latencyParagraph).toBeInTheDocument();
   });
 
   // TC-044: Handles plural/singular for result count

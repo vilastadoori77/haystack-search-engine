@@ -68,7 +68,7 @@ export default function SearchBar({
     }
   };
 
-  // Also support onKeyPress for compatibility with testing libraries
+  // Also support onKeyPress for compatibility with testing libraries (deprecated but needed for tests)
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && validateQuery(query) && !isLoading) {
       e.preventDefault();
@@ -100,16 +100,16 @@ export default function SearchBar({
         />
 
         {/* Clear button - TC-009: visible when query has text, TC-010: hidden when empty */}
-        {query.trim().length > 0 && (
+        {query.trim().length > 0 ? (
           <button
             type="button"
             onClick={onClear}
-            aria-label="Clear search"
+            aria-label="Clear query"
             className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-gray-700"
           >
             Clear
           </button>
-        )}
+        ) : null}
 
         {/* Submit button */}
         <button

@@ -10,15 +10,15 @@ interface ExampleQueriesProps {
 
 describe('ExampleQueries', () => {
   let mockOnQuerySelect: ReturnType<typeof vi.fn>;
+  let defaultProps: ExampleQueriesProps;
 
   beforeEach(() => {
     mockOnQuerySelect = vi.fn();
+    defaultProps = {
+      onQuerySelect: mockOnQuerySelect,
+      isLoading: false,
+    };
   });
-
-  const defaultProps: ExampleQueriesProps = {
-    onQuerySelect: mockOnQuerySelect,
-    isLoading: false,
-  };
 
   const exampleQueries = [
     'migration',
@@ -35,7 +35,7 @@ describe('ExampleQueries', () => {
 
     // Then: All four buttons are displayed with correct labels
     exampleQueries.forEach((query) => {
-      const button = screen.getByRole('button', { name: new RegExp(query, 'i') });
+      const button = screen.getByRole('button', { name: `Search for: ${query}` });
       expect(button).toBeInTheDocument();
     });
   });
@@ -47,7 +47,7 @@ describe('ExampleQueries', () => {
     render(<ExampleQueries {...defaultProps} />);
 
     // When: First example query button is clicked
-    const firstButton = screen.getByRole('button', { name: /migration$/i });
+    const firstButton = screen.getByRole('button', { name: 'Search for: migration' });
     await user.click(firstButton);
 
     // Then: onQuerySelect is called with "migration"
@@ -63,7 +63,7 @@ describe('ExampleQueries', () => {
 
     // Then: All buttons are disabled
     exampleQueries.forEach((query) => {
-      const button = screen.getByRole('button', { name: new RegExp(query, 'i') });
+      const button = screen.getByRole('button', { name: `Search for: ${query}` });
       expect(button).toBeDisabled();
     });
   });
@@ -76,7 +76,7 @@ describe('ExampleQueries', () => {
 
     // Then: All buttons are enabled
     exampleQueries.forEach((query) => {
-      const button = screen.getByRole('button', { name: new RegExp(query, 'i') });
+      const button = screen.getByRole('button', { name: `Search for: ${query}` });
       expect(button).toBeEnabled();
     });
   });
@@ -89,7 +89,7 @@ describe('ExampleQueries', () => {
 
     // When: Each button is clicked
     for (const query of exampleQueries) {
-      const button = screen.getByRole('button', { name: new RegExp(query, 'i') });
+      const button = screen.getByRole('button', { name: `Search for: ${query}` });
       await user.click(button);
     }
 
@@ -113,7 +113,7 @@ describe('ExampleQueries', () => {
 
     // And: Each button has aria-label
     exampleQueries.forEach((query) => {
-      const button = screen.getByRole('button', { name: new RegExp(query, 'i') });
+      const button = screen.getByRole('button', { name: `Search for: ${query}` });
       expect(button).toHaveAttribute('aria-label', `Search for: ${query}`);
     });
   });

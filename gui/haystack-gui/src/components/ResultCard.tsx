@@ -15,14 +15,9 @@
  * @param rank - The rank/position of this result (1-based index)
  */
 import { formatScore } from '../utils/formatters';
+import { SearchResult } from '../types/search';
 
-interface SearchResult {
-  docId: number;
-  score: number;
-  snippet: string;
-}
-
-interface ResultCardProps {
+export interface ResultCardProps {
   result: SearchResult;
   rank: number;
 }

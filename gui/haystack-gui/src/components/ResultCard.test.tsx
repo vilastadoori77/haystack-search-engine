@@ -3,18 +3,15 @@ import { render, screen } from '@testing-library/react';
 import ResultCard from './ResultCard';
 
 interface SearchResult {
+  rank: number;
   docId: number;
   score: number;
   snippet: string;
 }
 
-interface ResultCardProps {
-  result: SearchResult;
-  rank: number;
-}
-
 describe('ResultCard', () => {
   const mockResult: SearchResult = {
+    rank: 1,
     docId: 5,
     score: 2.456789,
     snippet: 'This is a test snippet that contains relevant information about the search query.',

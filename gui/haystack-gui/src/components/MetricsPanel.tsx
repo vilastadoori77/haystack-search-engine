@@ -19,7 +19,7 @@ interface SearchMetrics {
   latency: number; // milliseconds
 }
 
-interface MetricsPanelProps {
+export interface MetricsPanelProps {
   metrics: SearchMetrics | null;
 }
 
