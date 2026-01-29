@@ -4,6 +4,12 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: {
+      '/search': 'http://localhost:8900',
+      '/health': 'http://localhost:8900',
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',
