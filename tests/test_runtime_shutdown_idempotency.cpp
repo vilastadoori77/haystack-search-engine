@@ -61,16 +61,19 @@ static std::string create_temp_dir()
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(0, 999999);
-    
+
     for (int i = 0; i < 1000; ++i)
     {
         std::string dir = base + std::to_string(pid) + "_" + std::to_string(dis(gen));
         if (!fs::exists(dir))
         {
-            try {
+            try
+            {
                 fs::create_directories(dir);
                 return dir;
-            } catch (...) {
+            }
+            catch (...)
+            {
                 // Directory might have been created by another process, try again
                 continue;
             }
@@ -90,16 +93,16 @@ static void cleanup_temp_dir(const std::string &dir)
 static std::string create_test_index()
 {
     std::string index_dir = create_temp_dir();
-    
+
     std::ofstream meta(index_dir + "/index_meta.json");
     meta << R"({"schema_version": 1, "N": 2, "avgdl": 5.0})";
     meta.close();
-    
+
     std::ofstream docs(index_dir + "/docs.jsonl");
     docs << R"({"docId": 1, "text": "hello world"})" << "\n";
     docs << R"({"docId": 2, "text": "test document"})" << "\n";
     docs.close();
-    
+
     std::ofstream postings(index_dir + "/postings.bin", std::ios::binary);
     std::uint64_t term_count = 0;
     unsigned char bytes[8] = {
@@ -110,11 +113,10 @@ static std::string create_test_index()
         (unsigned char)((term_count >> 32) & 0xFF),
         (unsigned char)((term_count >> 40) & 0xFF),
         (unsigned char)((term_count >> 48) & 0xFF),
-        (unsigned char)((term_count >> 56) & 0xFF)
-    };
-    postings.write(reinterpret_cast<const char*>(bytes), 8);
+        (unsigned char)((term_count >> 56) & 0xFF)};
+    postings.write(reinterpret_cast<const char *>(bytes), 8);
     postings.close();
-    
+
     return index_dir;
 }
 
@@ -124,7 +126,7 @@ static int run_command_with_multiple_signals(const std::string &cmd, const std::
     std::string stdout_file_path = "/tmp/haystack_shutdown_stdout_" + std::to_string(pid);
     std::string stderr_file_path = "/tmp/haystack_shutdown_stderr_" + std::to_string(pid);
     std::string exit_code_file = "/tmp/haystack_shutdown_exit_" + std::to_string(pid);
-    
+
     // Extract port from command string
     int test_port = -1;
     size_t port_pos = cmd.find("--port ");
@@ -132,14 +134,18 @@ static int run_command_with_multiple_signals(const std::string &cmd, const std::
     {
         size_t port_start = port_pos + 7;
         size_t port_end = cmd.find_first_of(" \n", port_start);
-        if (port_end == std::string::npos) port_end = cmd.length();
-        try {
+        if (port_end == std::string::npos)
+            port_end = cmd.length();
+        try
+        {
             test_port = std::stoi(cmd.substr(port_start, port_end - port_start));
-        } catch (...) {
+        }
+        catch (...)
+        {
             test_port = -1;
         }
     }
-    
+
     pid_t child_pid = fork();
     if (child_pid == 0)
     {
@@ -155,7 +161,7 @@ static int run_command_with_multiple_signals(const std::string &cmd, const std::
     {
         // Wait for the child to set up its process group and start the server
         usleep(200000); // 200ms
-        
+
         // Wait for server to start - check if it's ready
         bool server_ready = false;
         if (test_port > 0)
@@ -195,7 +201,7 @@ static int run_command_with_multiple_signals(const std::string &cmd, const std::
         {
             usleep(300000); // 300ms delay after readiness to ensure server is fully ready
         }
-        
+
         // Send multiple signals to the process group (negative PID sends to process group)
         // This ensures signals reach searchd even if it's running in a shell
         // Note: If setpgid failed in child, kill(-child_pid) will fail, so fall back to kill(child_pid)
@@ -209,7 +215,7 @@ static int run_command_with_multiple_signals(const std::string &cmd, const std::
             }
             usleep(200000); // 200ms between signals to allow processing
         }
-        
+
         // Verify server is shutting down by checking /health (should return non-200)
         // This confirms signals reached the server
         bool server_shutting_down = false;
@@ -241,10 +247,10 @@ static int run_command_with_multiple_signals(const std::string &cmd, const std::
         else
         {
             // If we can't check /health, just wait a bit
-            usleep(500000); // 500ms
+            usleep(500000);              // 500ms
             server_shutting_down = true; // Assume it's shutting down
         }
-        
+
         // Wait for the shell process to exit with timeout (never block indefinitely)
         // Give more time for graceful shutdown - server needs time to process signals
         int status;
@@ -267,35 +273,35 @@ static int run_command_with_multiple_signals(const std::string &cmd, const std::
             }
             usleep(100000); // 100ms
         }
-        
+
         // If still running, force kill and wait (but this should be rare)
         if (!process_exited)
         {
             kill(child_pid, SIGKILL);
             waitpid(child_pid, &status, 0);
         }
-        
+
         // Read output files
         std::ifstream stdout_file(stdout_file_path);
         std::ifstream stderr_file(stderr_file_path);
-        
+
         stdout_output.clear();
         stderr_output.clear();
-        
+
         if (stdout_file)
         {
             stdout_output.assign((std::istreambuf_iterator<char>(stdout_file)),
-                                std::istreambuf_iterator<char>());
+                                 std::istreambuf_iterator<char>());
             stdout_file.close();
         }
-        
+
         if (stderr_file)
         {
             stderr_output.assign((std::istreambuf_iterator<char>(stderr_file)),
-                                std::istreambuf_iterator<char>());
+                                 std::istreambuf_iterator<char>());
             stderr_file.close();
         }
-        
+
         // Get exit code from waitpid status, not from file
         int exit_code = -1;
         if (WIFEXITED(status))
@@ -307,14 +313,14 @@ static int run_command_with_multiple_signals(const std::string &cmd, const std::
             // Process was killed by signal - this shouldn't happen for clean shutdown
             exit_code = 128 + WTERMSIG(status);
         }
-        
+
         std::remove(stdout_file_path.c_str());
         std::remove(stderr_file_path.c_str());
         std::remove(exit_code_file.c_str());
-        
+
         return exit_code;
     }
-    
+
     return -1;
 }
 
@@ -323,23 +329,23 @@ TEST_CASE("Multiple SIGINT signals: does not crash and exits with code 0")
     // Save original signal handlers and ignore SIGTERM/SIGINT to prevent signal propagation
     void (*old_sigterm)(int) = signal(SIGTERM, SIG_IGN);
     void (*old_sigint)(int) = signal(SIGINT, SIG_IGN);
-    
+
     std::string index_dir = create_test_index();
     std::string searchd_path = find_searchd_path();
-    
+
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(9000, 9999);
     int test_port = dis(gen);
-    
+
     std::string cmd = searchd_path + " --serve --in \"" + index_dir + "\" --port " + std::to_string(test_port);
-    
+
     std::string stdout_output, stderr_output;
     std::vector<int> signals = {SIGINT, SIGINT, SIGINT};
     int exit_code = run_command_with_multiple_signals(cmd, signals, stdout_output, stderr_output);
-    
+
     cleanup_temp_dir(index_dir);
-    
+
     // Phase 2.4: Multiple SIGINT signals must not crash and must exit with code 0
     if (exit_code != 0)
     {
@@ -353,7 +359,7 @@ TEST_CASE("Multiple SIGINT signals: does not crash and exits with code 0")
         }
     }
     REQUIRE(exit_code == 0);
-    
+
     // Restore original signal handlers
     signal(SIGTERM, old_sigterm);
     signal(SIGINT, old_sigint);
@@ -364,26 +370,26 @@ TEST_CASE("Multiple SIGTERM signals: does not crash and exits with code 0")
     // Save original signal handlers and ignore SIGTERM/SIGINT to prevent signal propagation
     void (*old_sigterm)(int) = signal(SIGTERM, SIG_IGN);
     void (*old_sigint)(int) = signal(SIGINT, SIG_IGN);
-    
+
     std::string index_dir = create_test_index();
     std::string searchd_path = find_searchd_path();
-    
+
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(9000, 9999);
     int test_port = dis(gen);
-    
+
     std::string cmd = searchd_path + " --serve --in \"" + index_dir + "\" --port " + std::to_string(test_port);
-    
+
     std::string stdout_output, stderr_output;
     std::vector<int> signals = {SIGTERM, SIGTERM, SIGTERM};
     int exit_code = run_command_with_multiple_signals(cmd, signals, stdout_output, stderr_output);
-    
+
     cleanup_temp_dir(index_dir);
-    
+
     // Phase 2.4: Multiple SIGTERM signals must not crash and must exit with code 0
     REQUIRE(exit_code == 0);
-    
+
     // Restore original signal handlers
     signal(SIGTERM, old_sigterm);
     signal(SIGINT, old_sigint);
@@ -394,28 +400,28 @@ TEST_CASE("Multiple signals: no duplicate shutdown output")
     // Save original signal handlers and ignore SIGTERM/SIGINT to prevent signal propagation
     void (*old_sigterm)(int) = signal(SIGTERM, SIG_IGN);
     void (*old_sigint)(int) = signal(SIGINT, SIG_IGN);
-    
+
     std::string index_dir = create_test_index();
     std::string searchd_path = find_searchd_path();
-    
+
     // Try multiple random ports to avoid conflicts
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(9000, 9999);
     int test_port = -1;
     bool success = false;
-    
+
     // Try up to 10 different ports to find one that works
     for (int port_attempt = 0; port_attempt < 10; ++port_attempt)
     {
         test_port = dis(gen);
-        
+
         std::string cmd = searchd_path + " --serve --in \"" + index_dir + "\" --port " + std::to_string(test_port);
-        
+
         std::string stdout_output, stderr_output;
         std::vector<int> signals = {SIGINT, SIGTERM, SIGINT};
         int exit_code = run_command_with_multiple_signals(cmd, signals, stdout_output, stderr_output);
-        
+
         // Check if there was a port binding error
         bool has_port_error = stderr_output.find("Failed to bind to port") != std::string::npos;
         if (has_port_error)
@@ -423,7 +429,7 @@ TEST_CASE("Multiple signals: no duplicate shutdown output")
             // Port conflict - try next port
             continue;
         }
-        
+
         // No port error - check if exit was clean
         if (exit_code == 0)
         {
@@ -434,17 +440,17 @@ TEST_CASE("Multiple signals: no duplicate shutdown output")
             trimmed_stderr.erase(std::remove(trimmed_stderr.begin(), trimmed_stderr.end(), '\r'), trimmed_stderr.end());
             trimmed_stderr.erase(std::remove(trimmed_stderr.begin(), trimmed_stderr.end(), ' '), trimmed_stderr.end());
             trimmed_stderr.erase(std::remove(trimmed_stderr.begin(), trimmed_stderr.end(), '\t'), trimmed_stderr.end());
-            
+
             // If there's any content, check what it is - might be startup errors
             if (trimmed_stderr.empty())
             {
                 // Success - clean shutdown with no errors
                 cleanup_temp_dir(index_dir);
-                
+
                 // Phase 2.4: Multiple signals must not produce duplicate output
                 REQUIRE(exit_code == 0);
                 REQUIRE(trimmed_stderr.empty());
-                
+
                 // Restore original signal handlers
                 signal(SIGTERM, old_sigterm);
                 signal(SIGINT, old_sigint);
@@ -452,14 +458,14 @@ TEST_CASE("Multiple signals: no duplicate shutdown output")
             }
         }
     }
-    
+
     // If we get here, all port attempts failed or had errors
     cleanup_temp_dir(index_dir);
-    
+
     // Restore original signal handlers
     signal(SIGTERM, old_sigterm);
     signal(SIGINT, old_sigint);
-    
+
     // This should not happen - at least one port should work
     REQUIRE(success);
 }

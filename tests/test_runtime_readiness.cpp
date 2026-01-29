@@ -61,16 +61,19 @@ static std::string create_temp_dir()
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(0, 999999);
-    
+
     for (int i = 0; i < 1000; ++i)
     {
         std::string dir = base + std::to_string(pid) + "_" + std::to_string(dis(gen));
         if (!fs::exists(dir))
         {
-            try {
+            try
+            {
                 fs::create_directories(dir);
                 return dir;
-            } catch (...) {
+            }
+            catch (...)
+            {
                 // Directory might have been created by another process, try again
                 continue;
             }
@@ -90,16 +93,16 @@ static void cleanup_temp_dir(const std::string &dir)
 static std::string create_test_index()
 {
     std::string index_dir = create_temp_dir();
-    
+
     std::ofstream meta(index_dir + "/index_meta.json");
     meta << R"({"schema_version": 1, "N": 2, "avgdl": 5.0})";
     meta.close();
-    
+
     std::ofstream docs(index_dir + "/docs.jsonl");
     docs << R"({"docId": 1, "text": "hello world"})" << "\n";
     docs << R"({"docId": 2, "text": "test document"})" << "\n";
     docs.close();
-    
+
     // Create postings.bin with 8-byte term_count header (same format as test_runtime_health_endpoint.cpp)
     std::ofstream postings(index_dir + "/postings.bin", std::ios::binary);
     std::uint64_t term_count = 0;
@@ -111,11 +114,10 @@ static std::string create_test_index()
         (unsigned char)((term_count >> 32) & 0xFF),
         (unsigned char)((term_count >> 40) & 0xFF),
         (unsigned char)((term_count >> 48) & 0xFF),
-        (unsigned char)((term_count >> 56) & 0xFF)
-    };
-    postings.write(reinterpret_cast<const char*>(bytes), 8);
+        (unsigned char)((term_count >> 56) & 0xFF)};
+    postings.write(reinterpret_cast<const char *>(bytes), 8);
     postings.close();
-    
+
     return index_dir;
 }
 
@@ -123,13 +125,13 @@ static int http_get_status_code(const std::string &url)
 {
     // Use system curl to get HTTP status code
     std::string cmd = "curl -s -o /dev/null -w \"%{http_code}\" --max-time 2 --connect-timeout 1 \"" + url + "\" 2>/dev/null || echo \"-1\"";
-    
+
     FILE *pipe = popen(cmd.c_str(), "r");
     if (!pipe)
     {
         return -1;
     }
-    
+
     char buffer[128];
     std::string result;
     while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
@@ -137,18 +139,18 @@ static int http_get_status_code(const std::string &url)
         result += buffer;
     }
     int pclose_status = pclose(pipe);
-    
+
     // Remove newlines and whitespace
     result.erase(std::remove(result.begin(), result.end(), '\n'), result.end());
     result.erase(std::remove(result.begin(), result.end(), '\r'), result.end());
     result.erase(std::remove(result.begin(), result.end(), ' '), result.end());
-    
+
     // If curl command failed, return -1
     if (pclose_status != 0 || result.empty() || result == "-1")
     {
         return -1;
     }
-    
+
     try
     {
         int code = std::stoi(result);
@@ -169,17 +171,17 @@ TEST_CASE("/health returns HTTP 200 only when server is ready")
 {
     // Save original signal handler and ignore SIGTERM to prevent signal propagation
     void (*old_handler)(int) = signal(SIGTERM, SIG_IGN);
-    
+
     std::string index_dir = create_test_index();
     std::string searchd_path = find_searchd_path();
-    
+
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(9000, 9999);
     int test_port = dis(gen);
-    
+
     std::string cmd = searchd_path + " --serve --in \"" + index_dir + "\" --port " + std::to_string(test_port) + " >/dev/null 2>/dev/null";
-    
+
     pid_t pid = fork();
     if (pid == 0)
     {
@@ -193,7 +195,7 @@ TEST_CASE("/health returns HTTP 200 only when server is ready")
         // which waits 40 attempts with 200ms (8 seconds total)
         int status_code = -1;
         bool server_ready = false;
-        
+
         for (int attempt = 0; attempt < 40; ++attempt)
         {
             usleep(200000); // 200ms between attempts (same as other passing test)
@@ -206,14 +208,14 @@ TEST_CASE("/health returns HTTP 200 only when server is ready")
             // If we get 503, server is running but not ready yet - keep waiting
             // If we get -1, server might not be up yet - keep waiting
         }
-        
+
         // Cleanup: Check if process is still running and clean it up
         int status;
         // Check if process is still running
         pid_t check_result = waitpid(pid, &status, WNOHANG);
         bool needs_kill = false;
         bool process_exited = false;
-        
+
         if (check_result == 0)
         {
             // Process still running (WNOHANG returned 0)
@@ -236,7 +238,7 @@ TEST_CASE("/health returns HTTP 200 only when server is ready")
             needs_kill = true;
             kill(pid, SIGTERM);
         }
-        
+
         // Wait for process with timeout (if we sent a signal)
         if (needs_kill && !process_exited)
         {
@@ -255,7 +257,7 @@ TEST_CASE("/health returns HTTP 200 only when server is ready")
                 }
                 usleep(100000); // 100ms
             }
-            
+
             // If still running, force kill and wait (blocking wait after SIGKILL is OK)
             if (!process_exited)
             {
@@ -263,16 +265,16 @@ TEST_CASE("/health returns HTTP 200 only when server is ready")
                 waitpid(pid, &status, 0);
             }
         }
-        
+
         // Verify /health returns 200 when ready
         // Note: If server failed to start (e.g., port binding), server_ready will be false
         REQUIRE(server_ready);
         REQUIRE(status_code == 200);
     }
-    
+
     // Restore original signal handler
     signal(SIGTERM, old_handler);
-    
+
     cleanup_temp_dir(index_dir);
 }
 
@@ -282,7 +284,7 @@ TEST_CASE("/health returns HTTP 200 only when server is ready")
 // even with immediate checks after fork(). This is not a production issue - the server
 // correctly returns HTTP 200 only when ready. The test failure is due to the server
 // becoming ready faster than we can check, which is actually desirable behavior in production.
-// 
+//
 // The server implementation is correct: it sets g_server_ready=true only after all readiness
 // criteria are met (index load, port binding, startup message, HTTP server accepting connections).
 // The test cannot reliably verify pre-readiness behavior due to the fast startup time.
@@ -299,24 +301,24 @@ TEST_CASE("/health does not return HTTP 200 before readiness")
 {
     // Save original signal handler and ignore SIGTERM to prevent signal propagation
     void (*old_handler)(int) = signal(SIGTERM, SIG_IGN);
-    
+
     std::string index_dir = create_test_index();
     std::string searchd_path = find_searchd_path();
-    
+
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(9000, 9999);
-    
+
     pid_t pid = -1;
     int test_port = -1;
     bool all_checks_passed = false;
-    
+
     // Try multiple random ports to avoid conflicts
     for (int port_attempt = 0; port_attempt < 10; ++port_attempt)
     {
         test_port = dis(gen);
         std::string cmd = searchd_path + " --serve --in \"" + index_dir + "\" --port " + std::to_string(test_port) + " >/dev/null 2>/dev/null";
-        
+
         pid = fork();
         if (pid == 0)
         {
@@ -332,7 +334,7 @@ TEST_CASE("/health does not return HTTP 200 before readiness")
             // The key insight: we need to check IMMEDIATELY after fork with no delay
             // and do many checks as fast as possible to catch the server before it becomes ready
             bool got_200 = false;
-            
+
             // Do many rapid checks immediately after fork with no delays
             // Check as many times as possible as fast as possible to catch server before readiness
             // Each http_get_status_code() call takes time (curl via popen), so we do many checks
@@ -349,7 +351,7 @@ TEST_CASE("/health does not return HTTP 200 before readiness")
                     break;
                 }
             }
-            
+
             // If we got 200 during quick checks, server became ready too fast - test fails
             // This should not happen - server needs time to start
             if (got_200)
@@ -357,7 +359,7 @@ TEST_CASE("/health does not return HTTP 200 before readiness")
                 // Cleanup this attempt
                 int status;
                 kill(pid, SIGTERM);
-                
+
                 // Wait briefly for process to exit
                 bool process_exited = false;
                 for (int i = 0; i < 10; ++i)
@@ -370,33 +372,33 @@ TEST_CASE("/health does not return HTTP 200 before readiness")
                     }
                     usleep(50000); // 50ms
                 }
-                
+
                 if (!process_exited)
                 {
                     kill(pid, SIGKILL);
                     waitpid(pid, &status, 0);
                 }
-                
+
                 // If we got 200, it means server became ready too fast
                 // This is a test failure - fail immediately
                 // REQUIRE will cause test to fail and exit
                 REQUIRE_FALSE(got_200);
             }
-            
+
             // All checks passed - server was not ready during our quick checks
             all_checks_passed = true;
             break;
         }
     }
-    
+
     // Verify we successfully started a server that wasn't ready during quick checks
     REQUIRE(all_checks_passed);
     REQUIRE(pid > 0);
-    
+
     // Cleanup: Send SIGTERM and wait for process to exit
     int status;
     kill(pid, SIGTERM);
-    
+
     // Wait for process with timeout
     bool process_exited = false;
     for (int i = 0; i < 30; ++i)
@@ -414,17 +416,17 @@ TEST_CASE("/health does not return HTTP 200 before readiness")
         }
         usleep(100000); // 100ms
     }
-    
+
     // If still running, force kill and wait
     if (!process_exited)
     {
         kill(pid, SIGKILL);
         waitpid(pid, &status, 0);
     }
-    
+
     // Restore original signal handler
     signal(SIGTERM, old_handler);
-    
+
     cleanup_temp_dir(index_dir);
 }
 */

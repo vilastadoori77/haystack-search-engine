@@ -61,16 +61,19 @@ static std::string create_temp_dir()
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(0, 999999);
-    
+
     for (int i = 0; i < 1000; ++i)
     {
         std::string dir = base + std::to_string(pid) + "_" + std::to_string(dis(gen));
         if (!fs::exists(dir))
         {
-            try {
+            try
+            {
                 fs::create_directories(dir);
                 return dir;
-            } catch (...) {
+            }
+            catch (...)
+            {
                 // Directory might have been created by another process, try again
                 continue;
             }
@@ -90,16 +93,16 @@ static void cleanup_temp_dir(const std::string &dir)
 static std::string create_test_index()
 {
     std::string index_dir = create_temp_dir();
-    
+
     std::ofstream meta(index_dir + "/index_meta.json");
     meta << R"({"schema_version": 1, "N": 2, "avgdl": 5.0})";
     meta.close();
-    
+
     std::ofstream docs(index_dir + "/docs.jsonl");
     docs << R"({"docId": 1, "text": "hello world"})" << "\n";
     docs << R"({"docId": 2, "text": "test document"})" << "\n";
     docs.close();
-    
+
     std::ofstream postings(index_dir + "/postings.bin", std::ios::binary);
     std::uint64_t term_count = 0;
     unsigned char bytes[8] = {
@@ -110,11 +113,10 @@ static std::string create_test_index()
         (unsigned char)((term_count >> 32) & 0xFF),
         (unsigned char)((term_count >> 40) & 0xFF),
         (unsigned char)((term_count >> 48) & 0xFF),
-        (unsigned char)((term_count >> 56) & 0xFF)
-    };
-    postings.write(reinterpret_cast<const char*>(bytes), 8);
+        (unsigned char)((term_count >> 56) & 0xFF)};
+    postings.write(reinterpret_cast<const char *>(bytes), 8);
     postings.close();
-    
+
     return index_dir;
 }
 
@@ -122,17 +124,17 @@ TEST_CASE("Shutdown is thread-safe (no crashes with concurrent signals)")
 {
     // Save original signal handler and ignore SIGTERM to prevent signal propagation
     void (*old_handler)(int) = signal(SIGTERM, SIG_IGN);
-    
+
     std::string index_dir = create_test_index();
     std::string searchd_path = find_searchd_path();
-    
+
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(9000, 9999);
     int test_port = dis(gen);
-    
+
     std::string cmd = searchd_path + " --serve --in \"" + index_dir + "\" --port " + std::to_string(test_port) + " >/dev/null 2>/dev/null";
-    
+
     // Test that rapid signal handling doesn't crash
     pid_t pid = fork();
     if (pid == 0)
@@ -146,7 +148,7 @@ TEST_CASE("Shutdown is thread-safe (no crashes with concurrent signals)")
     {
         // Wait for the child to set up its process group
         usleep(100000); // 100ms
-        
+
         // Wait for server to start - poll /health endpoint to confirm readiness
         bool server_ready = false;
         for (int attempt = 0; attempt < 30; ++attempt)
@@ -170,13 +172,13 @@ TEST_CASE("Shutdown is thread-safe (no crashes with concurrent signals)")
                 }
             }
         }
-        
+
         // Give server a moment to fully stabilize
         if (server_ready)
         {
             usleep(300000); // 300ms
         }
-        
+
         // Send signals rapidly to test thread safety
         // Send to process group (negative PID) to ensure signals reach searchd
         for (int i = 0; i < 10; ++i)
@@ -188,7 +190,7 @@ TEST_CASE("Shutdown is thread-safe (no crashes with concurrent signals)")
             }
             usleep(10000); // 10ms
         }
-        
+
         // Wait for process with timeout (increased to allow graceful shutdown)
         int status;
         bool process_exited = false;
@@ -207,7 +209,7 @@ TEST_CASE("Shutdown is thread-safe (no crashes with concurrent signals)")
             }
             usleep(100000); // 100ms
         }
-        
+
         // Only force kill if process is still running after timeout
         // But check exit status first to see if it exited cleanly
         if (!process_exited)
@@ -216,7 +218,7 @@ TEST_CASE("Shutdown is thread-safe (no crashes with concurrent signals)")
             kill(pid, SIGKILL);
             waitpid(pid, &status, 0);
         }
-        
+
         // Phase 2.4: Shutdown must be thread-safe and not crash
         // Process should exit cleanly (either code 0 or SIGTERM signal code)
         // If process exited within timeout, check if it was clean
@@ -228,14 +230,14 @@ TEST_CASE("Shutdown is thread-safe (no crashes with concurrent signals)")
             bool signaled_clean = (WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM);
             clean_exit = exited_clean || signaled_clean;
         }
-        
+
         // Process must exit cleanly within timeout (thread-safe shutdown should work)
         REQUIRE(clean_exit);
     }
-    
+
     // Restore original signal handler
     signal(SIGTERM, old_handler);
-    
+
     cleanup_temp_dir(index_dir);
 }
 
@@ -243,27 +245,27 @@ TEST_CASE("Clean shutdown produces no stderr output (output discipline)")
 {
     // Save original signal handler and ignore SIGTERM to prevent signal propagation
     void (*old_handler)(int) = signal(SIGTERM, SIG_IGN);
-    
+
     std::string index_dir = create_test_index();
     std::string searchd_path = find_searchd_path();
-    
+
     // Try multiple random ports to avoid conflicts
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(9000, 9999);
     int test_port = -1;
     bool success = false;
-    
+
     // Try up to 10 different ports to find one that works
     for (int port_attempt = 0; port_attempt < 10; ++port_attempt)
     {
         test_port = dis(gen);
-        
+
         pid_t pid = getpid();
         std::string stderr_file_path = "/tmp/haystack_safety_stderr_" + std::to_string(pid) + "_" + std::to_string(port_attempt);
-        
+
         std::string cmd = searchd_path + " --serve --in \"" + index_dir + "\" --port " + std::to_string(test_port) + " 2>" + stderr_file_path + " >/dev/null";
-        
+
         pid_t child_pid = fork();
         if (child_pid == 0)
         {
@@ -297,17 +299,17 @@ TEST_CASE("Clean shutdown produces no stderr output (output discipline)")
                     }
                 }
             }
-            
+
             // Check stderr for port binding errors before proceeding
             std::ifstream stderr_check_file(stderr_file_path);
             std::string stderr_check_output;
             if (stderr_check_file)
             {
                 stderr_check_output.assign((std::istreambuf_iterator<char>(stderr_check_file)),
-                                         std::istreambuf_iterator<char>());
+                                           std::istreambuf_iterator<char>());
                 stderr_check_file.close();
             }
-            
+
             bool has_port_error = stderr_check_output.find("Failed to bind to port") != std::string::npos;
             if (has_port_error)
             {
@@ -318,13 +320,13 @@ TEST_CASE("Clean shutdown produces no stderr output (output discipline)")
                 std::remove(stderr_file_path.c_str());
                 continue;
             }
-            
+
             // Only send shutdown if server started successfully (no port error)
             if (server_ready)
             {
                 usleep(200000); // Brief delay after readiness
                 kill(child_pid, SIGTERM);
-                
+
                 // Wait for process with timeout (max 3 seconds)
                 int status;
                 bool process_exited = false;
@@ -343,31 +345,31 @@ TEST_CASE("Clean shutdown produces no stderr output (output discipline)")
                     }
                     usleep(100000); // 100ms
                 }
-                
+
                 // If still running, force kill
                 if (!process_exited)
                 {
                     kill(child_pid, SIGKILL);
                     waitpid(child_pid, &status, 0);
                 }
-                
+
                 // Ensure file is flushed
                 sync();
                 usleep(300000); // 300ms delay to ensure file writes are complete
-                
+
                 // Read stderr output
                 std::ifstream stderr_file(stderr_file_path);
                 std::string stderr_output;
                 if (stderr_file)
                 {
                     stderr_output.assign((std::istreambuf_iterator<char>(stderr_file)),
-                                        std::istreambuf_iterator<char>());
+                                         std::istreambuf_iterator<char>());
                     stderr_file.close();
                 }
-                
+
                 // Clean up file
                 std::remove(stderr_file_path.c_str());
-                
+
                 // Phase 2.4: Clean shutdown produces no stderr output
                 // Per spec: Clean shutdown MUST produce no stderr output
                 std::string trimmed = stderr_output;
@@ -375,17 +377,17 @@ TEST_CASE("Clean shutdown produces no stderr output (output discipline)")
                 trimmed.erase(std::remove(trimmed.begin(), trimmed.end(), '\r'), trimmed.end());
                 trimmed.erase(std::remove(trimmed.begin(), trimmed.end(), ' '), trimmed.end());
                 trimmed.erase(std::remove(trimmed.begin(), trimmed.end(), '\t'), trimmed.end());
-                
+
                 // Clean shutdown should produce no stderr output
                 if (trimmed.empty())
                 {
                     // Success - clean shutdown with no errors
                     success = true;
                     cleanup_temp_dir(index_dir);
-                    
+
                     // Restore original signal handler
                     signal(SIGTERM, old_handler);
-                    
+
                     REQUIRE(trimmed.empty());
                     return; // Success - exit test
                 }
@@ -400,18 +402,18 @@ TEST_CASE("Clean shutdown produces no stderr output (output discipline)")
             }
         }
     }
-    
+
     // If we get here, all port attempts failed or had errors
     cleanup_temp_dir(index_dir);
-    
+
     // Restore original signal handler
     signal(SIGTERM, old_handler);
-    
+
     // This should not happen - at least one port should work
     REQUIRE(success);
-    
+
     // Restore original signal handler
     signal(SIGTERM, old_handler);
-    
+
     cleanup_temp_dir(index_dir);
 }
