@@ -24,8 +24,9 @@
 3. [Functional Requirements](#3-functional-requirements)
 4. [Debouncing Algorithm](#4-debouncing-algorithm)
 5. [Implementation Details](#5-implementation-details)
-6. [Test Requirements](#6-test-requirements)
-7. [Usage Examples](#7-usage-examples)
+6. [Cursor Implementation Notes](#6-cursor-implementation-notes)
+7. [Test Requirements](#7-test-requirements)
+8. [Usage Examples](#8-usage-examples)
 
 ---
 
@@ -120,7 +121,7 @@ function useDebounce<T>(value: T, delay: number): T
 
 **FR-DEBOUNCE-EDGE-001:** SHALL handle zero delay (return immediately)  
 **FR-DEBOUNCE-EDGE-002:** SHALL handle very large delays  
-**FR-DEBOUNCE-EDGE-003:** SHALL handle null/undefined values  
+**FR-DEBOUNCE-EDGE-003:** SHALL handle null/undefined values (passes through as-is, consuming code should validate if needed)  
 **FR-DEBOUNCE-EDGE-004:** SHALL handle object reference changes  
 **FR-DEBOUNCE-EDGE-005:** SHALL handle array reference changes  
 
@@ -176,6 +177,14 @@ Change 5 (80ms)  → Timer 4 cancelled, Timer 5 starts (expires at 380ms)
 ```
 
 **Result:** Only final value (from change 5) is returned
+
+### 4.4 Object and Array Handling
+
+**Important Note:**
+- useDebounce compares values by reference, not deep equality
+- New object/array reference triggers debounce reset
+- Example: `{...obj}` creates new reference, triggers debounce
+- For deep equality comparison, use custom comparison hook
 
 ---
 
@@ -246,11 +255,28 @@ export function useDebounce<T>(value: T, delay: number): T {
 - Clear timeout on unmount
 - Prevent memory leaks
 
+**Timer Granularity:**
+- Browser timers have ~4-16ms granularity
+- Delays <16ms may not behave precisely
+- Recommended minimum delay: 50ms for predictable behavior
+
 ---
 
-## 6. Test Requirements
+## 6. Cursor Implementation Notes
 
-### 6.1 Test Coverage Requirements
+When generating code from this specification:
+- Use exact type signature: `function useDebounce<T>(value: T, delay: number): T`
+- Follow implementation structure from Section 5.1
+- Implement all test cases from Section 6
+- Use setTimeout with cleanup in useEffect
+- Include JSDoc comments with @template, @param, @returns
+- Include usage example in JSDoc
+
+---
+
+## 7. Test Requirements
+
+### 7.1 Test Coverage Requirements
 
 **TR-DEBOUNCE-001:** Test returns initial value immediately  
 **TR-DEBOUNCE-002:** Test delays value update by delay milliseconds  
@@ -267,7 +293,7 @@ export function useDebounce<T>(value: T, delay: number): T {
 **TR-DEBOUNCE-013:** Test handles undefined values  
 **TR-DEBOUNCE-014:** Test prevents memory leaks  
 
-### 6.2 Test Structure
+### 7.2 Test Structure
 
 **Given-When-Then Format:**
 - Given: Initial value and delay
@@ -286,9 +312,9 @@ export function useDebounce<T>(value: T, delay: number): T {
 
 ---
 
-## 7. Usage Examples
+## 8. Usage Examples
 
-### 7.1 Basic Usage (String)
+### 8.1 Basic Usage (String)
 
 ```typescript
 import { useState } from 'react';
@@ -318,7 +344,7 @@ function SearchComponent() {
 }
 ```
 
-### 7.2 Usage with useSearch Hook
+### 8.2 Usage with useSearch Hook
 
 ```typescript
 import { useEffect } from 'react';
@@ -345,7 +371,7 @@ function AutoSearchComponent() {
 }
 ```
 
-### 7.3 Usage with Number Values
+### 8.3 Usage with Number Values
 
 ```typescript
 const [limit, setLimit] = useState(10);
@@ -354,7 +380,7 @@ const debouncedLimit = useDebounce(limit, 200);
 // Use debouncedLimit for API calls
 ```
 
-### 7.4 Usage with Object Values
+### 8.4 Usage with Object Values
 
 ```typescript
 const [filters, setFilters] = useState({ category: '', tag: '' });
@@ -363,7 +389,7 @@ const debouncedFilters = useDebounce(filters, 400);
 // Use debouncedFilters for API calls
 ```
 
-### 7.5 Different Delay Values
+### 8.5 Different Delay Values
 
 ```typescript
 // Fast debounce (100ms) - for UI updates
@@ -416,6 +442,17 @@ const debouncedQuery = useDebounce(query, 500);
 **Alternative 3: Debouncing (this hook)**
 - Pros: Waits for final value, reduces calls
 - Cons: Slight delay (acceptable for most cases)
+
+### Appendix D: Implementation Review Checklist
+
+Before marking useDebounce as complete:
+- [ ] All FR-DEBOUNCE requirements implemented (Section 3)
+- [ ] All 14 test cases pass (Section 7)
+- [ ] Zero TypeScript errors
+- [ ] Generic type parameter <T> works correctly
+- [ ] Cleanup function clears timeout
+- [ ] Code follows structure from Section 5.1
+- [ ] JSDoc comments with @template present
 
 ---
 

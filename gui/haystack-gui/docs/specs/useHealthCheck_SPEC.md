@@ -28,6 +28,7 @@
 7. [Implementation Details](#7-implementation-details)
 8. [Test Requirements](#8-test-requirements)
 9. [Microservices Considerations](#9-microservices-considerations)
+10. [Cursor Implementation Notes](#10-cursor-implementation-notes)
 
 ---
 
@@ -160,6 +161,7 @@ isRefreshing: false      // Not refreshing initially
 **FR-HEALTH-REFRESH-005:** SHALL update health status  
 **FR-HEALTH-REFRESH-006:** SHALL update lastChecked timestamp  
 **FR-HEALTH-REFRESH-007:** SHALL handle errors gracefully  
+**FR-HEALTH-REFRESH-008:** refreshHealth() called during auto-poll SHALL execute independently (both checks can be in flight simultaneously)  
 
 ---
 
@@ -438,6 +440,24 @@ export function useHealthCheck() {
 **MS-HEALTH-015:** No cascading failures  
 **MS-HEALTH-016:** Graceful degradation  
 
+**Optional Future Enhancement:**
+- Consider exponential backoff if backend unhealthy for >5 minutes
+- Example: After 5 minutes unhealthy, poll every 10 seconds instead of 5
+- Not required for initial implementation
+
+---
+
+## 10. Cursor Implementation Notes
+
+When generating code from this specification:
+- Use exact type signatures from Section 2.2 and 2.3
+- Follow implementation structure from Section 7.1
+- Implement all polling behavior from Section 5
+- Include all test cases from Section 8
+- Use useRef for mounted state tracking
+- Use useCallback for performHealthCheck and refreshHealth
+- Include JSDoc comments for the hook
+
 ---
 
 ## Appendices
@@ -499,6 +519,18 @@ Time  | Action                    | Health  | lastChecked
 25s   | Poll 5 starts              | unhealthy| 00:00:20.2
 25.5s | Poll 5 succeeds            | healthy | 00:00:25.5
 ```
+
+### Appendix D: Implementation Review Checklist
+
+Before marking useHealthCheck as complete:
+- [ ] All FR-HEALTH requirements implemented (Section 4)
+- [ ] All 20 test cases pass (Section 8)
+- [ ] Zero TypeScript errors
+- [ ] Polling interval is exactly 5000ms
+- [ ] Cleanup prevents memory leaks
+- [ ] Code follows structure from Section 7.1
+- [ ] useRef prevents post-unmount updates
+- [ ] JSDoc comments present
 
 ---
 

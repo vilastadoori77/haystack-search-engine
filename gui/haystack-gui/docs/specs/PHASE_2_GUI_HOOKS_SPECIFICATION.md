@@ -161,6 +161,9 @@ This master spec references three detailed specifications:
 2. Write tests for `useSearch`
 3. Verify tests pass
 
+**Alternative Order:**
+You may implement useSearch before useHealthCheck if preferred. useDebounce should always be first (simplest). The key is building from simple to complex.
+
 **Phase 4: Integration**
 1. Refactor App.tsx to use all hooks
 2. Verify all existing tests pass
@@ -270,7 +273,9 @@ const {
 } = useHealthCheck();
 ```
 
-**Step 3: Integrate useDebounce (Optional)**
+**Step 3: Optional - Integrate useDebounce**
+Note: This step is OPTIONAL for Phase 2. It demonstrates good practice but is not required for basic functionality.
+
 ```typescript
 // For auto-search on typing
 const debouncedQuery = useDebounce(query, 300);
@@ -292,9 +297,40 @@ useEffect(() => {
 
 ---
 
-## 7. Success Criteria
+## 7. Common Pitfalls & Implementation Notes
 
-### 7.1 Code Metrics
+### 7.1 Common Mistakes to Avoid
+
+**useSearch:**
+- Forgetting to clear results before new search
+- Not handling empty/whitespace queries
+- Missing cleanup for in-flight requests
+- Forgetting to set isLoading to false in error case
+
+**useHealthCheck:**
+- Not checking mounted state before setState
+- Forgetting to clear interval on unmount
+- Setting isRefreshing during auto-polls (should only be manual)
+- Not preventing state updates after unmount
+
+**useDebounce:**
+- Not clearing timeout in cleanup
+- Forgetting to handle component unmount
+- Using very short delays (<16ms)
+
+### 7.2 Verification Steps
+
+After implementing each hook:
+1. Run tests: `npm test -- {hookName}.test.ts`
+2. Check TypeScript: `npx tsc --noEmit`
+3. Verify no console warnings
+4. Check test coverage: `npm test -- --coverage {hookName}.test.ts`
+
+---
+
+## 8. Success Criteria
+
+### 8.1 Code Metrics
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
@@ -303,14 +339,14 @@ useEffect(() => {
 | TypeScript errors | 0 | `npx tsc --noEmit` |
 | Test pass rate | 100% | `npm test` |
 
-### 7.2 Functional Criteria
+### 8.2 Functional Criteria
 
 - [ ] All existing functionality preserved
 - [ ] All existing tests pass
 - [ ] No regressions
 - [ ] Performance maintained or improved
 
-### 7.3 Quality Criteria
+### 8.3 Quality Criteria
 
 - [ ] Code follows TypeScript strict mode
 - [ ] No 'any' types used

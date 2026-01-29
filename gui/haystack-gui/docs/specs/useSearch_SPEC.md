@@ -27,6 +27,7 @@
 6. [Implementation Details](#6-implementation-details)
 7. [Test Requirements](#7-test-requirements)
 8. [Microservices Considerations](#8-microservices-considerations)
+9. [Cursor Implementation Notes](#9-cursor-implementation-notes)
 
 ---
 
@@ -163,6 +164,9 @@ isLoading: false    // Not loading initially
 **FR-SEARCH-QUERY-001:** `setQuery()` SHALL update query state immediately  
 **FR-SEARCH-QUERY-002:** `setQuery()` SHALL accept any string value  
 **FR-SEARCH-QUERY-003:** `setQuery()` SHALL NOT trim whitespace automatically  
+
+**Note:** setQuery() accepts the value as-is without trimming to preserve user input exactly as typed. However, executeSearch() trims the query before validation to ignore leading/trailing whitespace when determining if query is empty.
+
 **FR-SEARCH-QUERY-004:** `executeSearch()` SHALL trim query before validation  
 **FR-SEARCH-QUERY-005:** `executeSearch()` SHALL validate query is non-empty  
 **FR-SEARCH-QUERY-006:** `executeSearch()` SHALL NOT execute if query is empty/whitespace  
@@ -205,6 +209,7 @@ isLoading: false    // Not loading initially
 **FR-SEARCH-CLEAR-004:** `clearSearch()` SHALL reset metrics to null  
 **FR-SEARCH-CLEAR-005:** `clearSearch()` SHALL NOT reset limit  
 **FR-SEARCH-CLEAR-006:** `clearSearch()` SHALL NOT reset isLoading  
+**FR-SEARCH-CLEAR-007:** `clearSearch()` SHOULD NOT cancel in-flight API requests (implementation note: requests complete but results are ignored if search was cleared)  
 
 ---
 
@@ -367,6 +372,11 @@ export function useSearch() {
 - Use functional updates if needed
 - Minimize re-renders
 
+**Request Cancellation:**
+- Current implementation does not cancel in-flight requests
+- Future enhancement: Use AbortController for cancellation
+- Results from cancelled requests are ignored if clearSearch() called
+
 ---
 
 ## 7. Test Requirements
@@ -443,6 +453,18 @@ export function useSearch() {
 
 ---
 
+## 9. Cursor Implementation Notes
+
+When generating code from this specification:
+- Use exact type signatures from Section 2.2 and 2.3
+- Follow implementation structure from Section 6.1
+- Include all error handling from Section 5
+- Implement all test cases from Section 7
+- Use useCallback for all returned functions
+- Include JSDoc comments for the hook
+
+---
+
 ## Appendices
 
 ### Appendix A: Usage Example
@@ -487,6 +509,17 @@ function MyComponent() {
 | TimeoutError | "Request timeout" |
 | HttpError (500) | "Search failed with error 500" |
 | InvalidResponseError | "Invalid server response" |
+
+### Appendix C: Implementation Review Checklist
+
+Before marking useSearch as complete:
+- [ ] All FR-SEARCH requirements implemented (Section 4)
+- [ ] All 18 test cases pass (Section 7)
+- [ ] Zero TypeScript errors
+- [ ] Code follows structure from Section 6.1
+- [ ] Error handling matches Section 5
+- [ ] All functions use useCallback
+- [ ] JSDoc comments present
 
 ---
 
