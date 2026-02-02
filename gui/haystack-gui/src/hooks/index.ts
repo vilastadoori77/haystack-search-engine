@@ -7,6 +7,6 @@
  */
 
 // Export placeholders - implementations will be added during TDD Green phase
-// export { useDebounce } from './useDebounce';
-// export { useHealthCheck } from './useHealthCheck';
-// export { useSearch } from './useSearch';
+export { useDebounce } from './useDebounce';
+export { useHealthCheck } from './useHealthCheck';
+export { useSearch } from './useSearch';

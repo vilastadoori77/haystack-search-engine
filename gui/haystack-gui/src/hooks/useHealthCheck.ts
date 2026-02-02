@@ -4,7 +4,7 @@ import type { HealthCheckResponse } from '../types/search';
 
 type HealthStatus = 'healthy' | 'unhealthy' | 'unknown';
 
-const HEALTH_POLL_INTERVAL = 5000; // 60 seconds
+const HEALTH_POLL_INTERVAL = 5000; // 5 seconds
 
 export function useHealthCheck() {
     const [health, setHealth] = useState<HealthStatus>('unknown');

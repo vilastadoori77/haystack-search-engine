@@ -46,26 +46,26 @@
  * - Uses searchApi.checkHealth() for health checks
  * - Handles all API errors and displays appropriate messages
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import SearchBar from './components/SearchBar';
 import ResultsList from './components/ResultsList';
 import MetricsPanel from './components/MetricsPanel';
 import ExampleQueries from './components/ExampleQueries';
 import HealthStatus from './components/HealthStatus';
-import { search, checkHealth } from './services/searchApi';
-import type { SearchResponse } from './types/search';
+import { useSearch, useHealthCheck } from './hooks';
 
-type HealthStatusType = 'healthy' | 'unhealthy' | 'unknown';
-
-interface SearchMetrics {
-  query: string;
-  resultCount: number;
-  latency: number;
-}
+// Removed old state management code - now using custom hooks
+// Old code commented out:
+// type HealthStatusType = 'healthy' | 'unhealthy' | 'unknown';
+// interface SearchMetrics {
+//   query: string;
+//   resultCount: number;
+//   latency: number;
+// }
 
 function App() {
   // Search state
-  const [query, setQuery] = useState('');
+  /*const [query, setQuery] = useState('');
   const [limit, setLimit] = useState(10);
   const [results, setResults] = useState<SearchResponse['results']>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -75,97 +75,52 @@ function App() {
   // Health state
   const [health, setHealth] = useState<HealthStatusType>('unknown');
   const [healthLastChecked, setHealthLastChecked] = useState<Date | null>(null);
-  const [isHealthRefreshing, setIsHealthRefreshing] = useState(false);
+  const [isHealthRefreshing, setIsHealthRefreshing] = useState(false);*/
 
-  // Health check function
-  const performHealthCheck = useCallback(async () => {
-    try {
-      const response = await checkHealth();
-      setHealth(response.status);
-      setHealthLastChecked(new Date());
-    } catch (err) {
-      setHealth('unhealthy');
-      setHealthLastChecked(new Date());
-    }
-  }, []);
+  // Use custom hooks for search and health check
+  const {
+    query,
+    limit,
+    results,
+    metrics,
+    error,
+    isLoading,
+    setQuery,
+    executeSearch,
+    setLimit,
+    clearSearch, } = useSearch();
 
-  // Initial health check and periodic polling (every 5 seconds)
+  const {
+    health,
+    lastChecked: healthLastChecked,
+    isRefreshing: isHealthRefreshing,
+    refreshHealth, } = useHealthCheck();
+
+  // Track if query was set from example query selection (to auto-execute search)
+  const exampleQueryRef = useRef<string | null>(null);
+
+  // Auto-execute search when query changes from example query selection
+  // This ensures React state update completes before executing search
   useEffect(() => {
-    performHealthCheck();
-    const interval = setInterval(performHealthCheck, 5000);
-    return () => clearInterval(interval);
-  }, [performHealthCheck]);
-
-  // Handle search
-  const handleSearch = useCallback(async () => {
-    if (!query.trim()) return;
-
-    setIsLoading(true);
-    setError(null);
-    const startTime = Date.now();
-
-    try {
-      const response = await search(query, limit);
-      setResults(response.results);
-
-      // Calculate latency and set metrics
-      const latency = Date.now() - startTime;
-      setMetrics({
-        query: response.query,
-        resultCount: response.results.length,
-        latency,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      setResults([]);
-      setMetrics(null);
-    } finally {
-      setIsLoading(false);
+    if (exampleQueryRef.current !== null && query === exampleQueryRef.current) {
+      exampleQueryRef.current = null; // Reset flag
+      executeSearch();
     }
-  }, [query, limit]);
+  }, [query, executeSearch]);
 
-  // Handle example query selection
-  const handleExampleQuerySelect = useCallback(async (selectedQuery: string) => {
-    setQuery(selectedQuery);
+  // Search is handled by the hook
+  const handleSearch = executeSearch;
 
-    // Auto-execute search
-    setIsLoading(true);
-    setError(null);
-    const startTime = Date.now();
+  //Handle example query selection
+  const handleExampleQuerySelect = useCallback((selectedQuery: string) => {
+    exampleQueryRef.current = selectedQuery; // Mark as example query
+    setQuery(selectedQuery); // This triggers useEffect above
+  }, [setQuery]);
 
-    try {
-      const response = await search(selectedQuery, limit);
-      setResults(response.results);
-
-      const latency = Date.now() - startTime;
-      setMetrics({
-        query: response.query,
-        resultCount: response.results.length,
-        latency,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      setResults([]);
-      setMetrics(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [limit]);
-
-  // Handle clear
-  const handleClear = useCallback(() => {
-    setQuery('');
-    setResults([]);
-    setError(null);
-    setMetrics(null);
-  }, []);
-
-  // Handle health refresh
-  const handleHealthRefresh = useCallback(async () => {
-    setIsHealthRefreshing(true);
-    await performHealthCheck();
-    setIsHealthRefreshing(false);
-  }, [performHealthCheck]);
+  // Clear is handled by the hook
+  const handleClear = clearSearch;
+  // Health refresh is handled by the hook
+  const handleHealthRefresh = refreshHealth;
 
   return (
     <div className="min-h-screen bg-gray-50">
