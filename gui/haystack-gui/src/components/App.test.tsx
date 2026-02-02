@@ -137,7 +137,8 @@ describe('App', () => {
       snippet: `Result ${i + 1}`,
     }));
     mockAxios.onGet(/\/search\?q=.*/).reply((config) => {
-      const urlParams = new URLSearchParams(config.url.split('?')[1]);
+      const url = config.url || '';
+      const urlParams = new URLSearchParams(url.split('?')[1] || '');
       const k = parseInt(urlParams.get('k') || '10', 10);
       return [200, { query: 'test', results: mockResults.slice(0, k) }];
     });
@@ -160,9 +161,12 @@ describe('App', () => {
 
     // Then: API is called with k=25
     await waitFor(() => {
-      const searchCall = mockAxios.history.get.find((call) => call.url.startsWith('/search?'));
-      const urlParams = new URLSearchParams(searchCall?.url.split('?')[1]);
-      expect(urlParams.get('k')).toBe('25');
+      const searchCall = mockAxios.history.get.find((call) => call.url?.startsWith('/search?'));
+      expect(searchCall).toBeDefined();
+      if (searchCall?.url) {
+        const urlParams = new URLSearchParams(searchCall.url.split('?')[1]);
+        expect(urlParams.get('k')).toBe('25');
+      }
     });
   });
 

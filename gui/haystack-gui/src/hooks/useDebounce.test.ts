@@ -196,7 +196,7 @@ describe('useDebounce', () => {
       // EXAMPLE: Component unmounts, pending timeout cleared
 
       // Given: Hook with pending update
-      const { result, rerender, unmount } = renderHook(
+      const { rerender, unmount } = renderHook(
         ({ value, delay }) => useDebounce(value, delay),
         {
           initialProps: { value: 'initial', delay: 300 },
@@ -433,16 +433,16 @@ describe('useDebounce', () => {
 
       // Given: Hook with string value
       const { result, rerender } = renderHook(
-        ({ value, delay }) => useDebounce(value, delay),
+        ({ value, delay }: { value: string | null; delay: number }) => useDebounce(value, delay),
         {
-          initialProps: { value: 'test', delay: 200 },
+          initialProps: { value: 'test' as string | null, delay: 200 },
         }
       );
 
       expect(result.current).toBe('test');
 
       // When: Value changes to null
-      rerender({ value: null, delay: 200 });
+      rerender({ value: null as string | null, delay: 200 });
 
       // Then: Value should update to null after delay
       act(() => {
@@ -461,16 +461,16 @@ describe('useDebounce', () => {
 
       // Given: Hook with string value
       const { result, rerender } = renderHook(
-        ({ value, delay }) => useDebounce(value, delay),
+        ({ value, delay }: { value: string | undefined; delay: number }) => useDebounce(value, delay),
         {
-          initialProps: { value: 'test', delay: 200 },
+          initialProps: { value: 'test' as string | undefined, delay: 200 },
         }
       );
 
       expect(result.current).toBe('test');
 
       // When: Value changes to undefined
-      rerender({ value: undefined, delay: 200 });
+      rerender({ value: undefined as string | undefined, delay: 200 });
 
       // Then: Value should update to undefined after delay
       act(() => {
@@ -488,7 +488,7 @@ describe('useDebounce', () => {
       // EXAMPLE: Component unmounts, all timers cleared, no leaks
 
       // Given: Hook with multiple value changes
-      const { result, rerender, unmount } = renderHook(
+      const { rerender, unmount } = renderHook(
         ({ value, delay }) => useDebounce(value, delay),
         {
           initialProps: { value: 'a', delay: 300 },

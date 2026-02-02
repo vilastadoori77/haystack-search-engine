@@ -64,7 +64,7 @@ describe('MetricsPanel', () => {
     render(<MetricsPanel metrics={mockMetrics} />);
 
     // Then: Latency text displays "Latency: 123ms"
-    const latencyParagraph = screen.getByText((content, element) => {
+    const latencyParagraph = screen.getByText((_content, element) => {
       return element?.tagName === 'P' &&
         element?.textContent?.trim() === 'Latency: 123ms';
     });

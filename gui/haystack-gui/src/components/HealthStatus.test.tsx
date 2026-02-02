@@ -1,16 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import HealthStatus from './HealthStatus';
-
-type HealthStatusType = 'healthy' | 'unhealthy' | 'unknown';
-
-interface HealthStatusProps {
-  health: HealthStatusType;
-  lastChecked: Date | null;
-  onRefresh: () => void;
-  isRefreshing: boolean;
-}
 
 describe('HealthStatus', () => {
   let mockOnRefresh: ReturnType<typeof vi.fn>;

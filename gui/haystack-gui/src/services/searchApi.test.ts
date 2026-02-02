@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import { search, checkHealth } from './searchApi';
@@ -8,8 +8,6 @@ import {
   HttpError,
   InvalidResponseError,
   SearchResponse,
-  HealthCheckResponse,
-  SearchResult,
 } from '../types/search';
 
 describe('searchApi', () => {

@@ -12,7 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import type { SearchResult, SearchResponse, NetworkError, TimeoutError, HttpError, InvalidResponseError } from '../types/search';
+import type { SearchResult, SearchResponse } from '../types/search';
 import { useSearch } from './useSearch';
 
 // Mock the searchApi module
@@ -479,8 +479,9 @@ describe('useSearch', () => {
       const { result } = renderHook(() => useSearch());
       const httpError = new Error('Search failed with error 500');
       httpError.name = 'HttpError';
-      (httpError as HttpError).status = 500;
-      mockSearch.mockRejectedValue(httpError);
+      // Create HttpError-like object for testing
+      const httpErrorWithStatus = Object.assign(httpError, { status: 500 });
+      mockSearch.mockRejectedValue(httpErrorWithStatus);
       mockValidateQuery.mockReturnValue(true);
 
       act(() => {
