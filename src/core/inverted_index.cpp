@@ -24,7 +24,7 @@ std::vector<int> InvertedIndex::search(const std::string &term) const
     if (it == index_.end())
         return {};
     std::vector<int> docs;
-    docs.reserve(it->second.size());
+    docs.reserve(it->second.size()); // OPTINIZATION: Reserve Capacity
     for (const auto &kv : it->second)
         docs.push_back(kv.first);
     std::sort(docs.begin(), docs.end());
@@ -37,14 +37,23 @@ std::vector<std::pair<int, int>> InvertedIndex::postings(const std::string &term
     if (it == index_.end())
         return {};
     std::vector<std::pair<int, int>> out;
-    out.reserve(it->second.size());
+    out.reserve(it->second.size()); // Optimize: Reserve Capacity
     for (const auto &kv : it->second)
         out.push_back({kv.first, kv.second});
     std::sort(out.begin(), out.end());
     return out;
 }
 
-int InvertedIndex::df(const std::string &term) const
+// NEW: 0(1) access to postings map for performancecritical BM25 scoring
+const std::unordered_map<int, int> *InvertedIndex::postings_map(const std::string &term) const
+{
+    auto it = index_.find(term);
+    if (it == index_.end())
+        return nullptr;
+    return &(it->second);
+}
+
+int InvertedIndex::df(const std::string &term) const noexcept
 {
     auto it = index_.find(term);
     if (it == index_.end())

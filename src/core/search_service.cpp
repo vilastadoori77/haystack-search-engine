@@ -26,7 +26,7 @@ static void require_file(const fs::path &p)
     }
 }
 
-// Adds a document to the tunderlying inverted index
+// Adds a document to the underlying inverted index
 void SearchService::add_document(int doc_id, const std::string &text)
 {
     std::unique_lock lock(mu_);
@@ -36,69 +36,53 @@ void SearchService::add_document(int doc_id, const std::string &text)
     doc_text_[doc_id] = text;
 
     // track document length for BM25
-    int dl = (int)tokenize(text).size();
+    size_t dl = tokenize(text).size();
     doc_len_[doc_id] = dl;
 
     // update corpus stats
-    N_ = (int)doc_len_.size();
+    N_ = static_cast<int>(doc_len_.size());
 
-    long long total = 0;
+    unsigned long long total = 0;
     for (const auto &kv : doc_len_)
         total += kv.second;
-    avgdl_ = (N_ > 0) ? (double)total / (double)N_ : 0.0;
+    avgdl_ = (N_ > 0) ? (static_cast<double>(total) / static_cast<double>(N_)) : 0.0;
 }
 
-// Helper: AND logic
-// returns only document IDs present in BOTH input lists
-static std::vector<int> intersect_sorted(std::vector<int> a, std::vector<int> b)
+// OPTIMIZED: Helper for AND logic with const-ref parameters (no copies!)
+// Returns only document IDs present in BOTH input lists (assumes sorted input)
+static std::vector<int> intersect_sorted(const std::vector<int> &a, const std::vector<int> &b)
 {
     std::vector<int> out;
+    out.reserve(std::min(a.size(), b.size())); // OPTIMIZATION: Reserve reasonable capacity
 
-    // ensure that both the lists are sorted and are good to go for intersection
-    std::sort(a.begin(), a.end());
-    std::sort(b.begin(), b.end());
-
-    // Two-pointer technique to find the intersection or converging pointers
-    // Commonly used on sorted arrays. One pointer starts at the beginning(0) and the other
-    // starts at the end of the array. The pointers move towards each other until they meet or cross.
-    // In this case, we are using two pointers to traverse both arrays simultaneously.
-    // Example: [1, 2, 3, 4] and [3, 4, 5, 6]
-    // Pointers start at the beginning of both arrays.
-    // Move pointers towards each other until they meet or cross.
-    // When pointers meet, add the common element to the output array.
-    // Move pointers to the next element and repeat until they meet or cross.
-
-    // Size_t represents an unsigned integer type that is large enough to hold the size of the largest object in memory.
+    // Two-pointer technique on sorted arrays - O(n+m) complexity
     size_t i = 0, j = 0;
-    // while (i < a.size() || j < b.size())
     while (i < a.size() && j < b.size())
     {
         if (a[i] == b[j])
         {
             out.push_back(a[i]);
-            i++;
-            j++;
+            ++i;
+            ++j;
         }
         else if (a[i] < b[j])
         {
-            i++;
+            ++i;
         }
         else
         {
-            j++;
+            ++j;
         }
     }
     return out;
 }
 
-// Helper: OR logic
-// returns union of document IDs from both lists
-static std::vector<int> union_sorted(std::vector<int> a, std::vector<int> b)
+// OPTIMIZED: Helper for OR logic with const-ref parameters
+// Returns union of document IDs from both lists (assumes sorted input)
+static std::vector<int> union_sorted(const std::vector<int> &a, const std::vector<int> &b)
 {
-    std::sort(a.begin(), a.end());
-    std::sort(b.begin(), b.end());
     std::vector<int> out;
-    out.reserve(a.size() + b.size());
+    out.reserve(a.size() + b.size()); // OPTIMIZATION: Reserve max possible size
 
     size_t i = 0, j = 0;
     // Merge-like union
@@ -108,39 +92,41 @@ static std::vector<int> union_sorted(std::vector<int> a, std::vector<int> b)
         {
             if (out.empty() || out.back() != a[i])
                 out.push_back(a[i]);
-            i++;
+            ++i;
         }
         else if (b[j] < a[i])
         {
             if (out.empty() || out.back() != b[j])
                 out.push_back(b[j]);
-            j++;
+            ++j;
         }
         else // equal
         {
             if (out.empty() || out.back() != a[i])
                 out.push_back(a[i]);
-            i++;
-            j++;
+            ++i;
+            ++j;
         }
     }
+
     // Append remaining elements
     while (i < a.size())
     {
         if (out.empty() || out.back() != a[i])
             out.push_back(a[i]);
-        i++;
+        ++i;
     }
     while (j < b.size())
     {
         if (out.empty() || out.back() != b[j])
             out.push_back(b[j]);
-        j++;
+        ++j;
     }
 
     return out;
 }
-// Searches the inverted index for documents matching the query∏
+
+// Searches the inverted index for documents matching the query
 std::vector<int> SearchService::search(const std::string &query) const
 {
     auto scored = search_scored(query);
@@ -177,19 +163,19 @@ std::vector<SearchHit> SearchService::search_with_snippets(const std::string &qu
 
 std::vector<std::pair<int, double>> SearchService::search_scored(const std::string &query) const
 {
-    // std::shared_lock<std::shared_mutex> lock(mu_);
     std::shared_lock lock(mu_);
     auto pq = parse_query(query);
 
     // Step 1: Candidate documents using AND/OR logic over terms
     std::vector<int> result;
     bool first = true;
+
     for (const auto &term : pq.terms)
     {
         auto docs = idx_.search(term);
         if (first)
         {
-            result = docs;
+            result = std::move(docs); // OPTIMIZATION: Move instead of copy
             first = false;
         }
         else
@@ -201,7 +187,7 @@ std::vector<std::pair<int, double>> SearchService::search_scored(const std::stri
     if (first)
         return {};
 
-    // Not terms exclusion set
+    // NOT terms exclusion set
     std::unordered_set<int> excluded;
     for (const auto &t : pq.not_terms)
     {
@@ -214,6 +200,7 @@ std::vector<std::pair<int, double>> SearchService::search_scored(const std::stri
     // Step 2: BM25 Scoring on candidate docs
     const double k1 = 1.2;
     const double b = 0.75;
+
     struct Scored
     {
         int doc_id;
@@ -238,22 +225,25 @@ std::vector<std::pair<int, double>> SearchService::search_scored(const std::stri
         double denom_norm = (avgdl_ > 0.0) ? (1.0 - b + b * (dl / avgdl_)) : 1.0;
         double score = 0.0;
 
+        // CRITICAL FIX: Use postings_map for O(1) TF lookup instead of O(n) linear search!
         for (const auto &term : pq.terms)
         {
             int df = idx_.df(term);
             if (df == 0)
                 continue;
-            int tf = 0;
-            for (const auto &p : idx_.postings(term))
-            {
-                if (p.first == docId)
-                {
-                    tf = p.second;
-                    break;
-                }
-            }
-            if (tf == 0)
+
+            // NEW OPTIMIZED APPROACH: O(1) map lookup instead of O(n) vector scan
+            const auto *postings_map = idx_.postings_map(term);
+            if (!postings_map)
                 continue;
+
+            auto tf_it = postings_map->find(docId);
+            if (tf_it == postings_map->end())
+                continue;
+
+            int tf = tf_it->second;
+
+            // BM25 formula
             double idf = std::log(((N_ - df + 0.5) / (df + 0.5)) + 1.0);
             double tf_part = (tf * (k1 + 1.0)) / (tf + k1 * denom_norm);
             score += idf * tf_part;
@@ -262,6 +252,7 @@ std::vector<std::pair<int, double>> SearchService::search_scored(const std::stri
         scored.push_back({docId, score});
     }
 
+    // Sort by score descending, then by docId ascending for determinism
     std::sort(scored.begin(), scored.end(), [](const Scored &a, const Scored &b)
               {
             if(a.score != b.score) return a.score > b.score;
@@ -270,7 +261,8 @@ std::vector<std::pair<int, double>> SearchService::search_scored(const std::stri
     std::vector<std::pair<int, double>> out;
     out.reserve(scored.size());
     for (const auto &s : scored)
-        out.push_back({s.doc_id, s.score});
+        out.emplace_back(s.doc_id, s.score); // OPTIMIZATION: emplace_back
+
     return out;
 }
 
@@ -306,7 +298,6 @@ static void write_atomic(const fs::path &final_path,
 
 void SearchService::save(const std::string &index_dir) const
 {
-    // throw std::runtime_error("SearchService::save not implemented");
     std::unique_lock lock(mu_); // save must be exclusive
 
     const fs::path dir(index_dir);
@@ -347,17 +338,7 @@ void SearchService::save(const std::string &index_dir) const
                 out << Json::writeString(w, row) << "\n";
             } }, std::ios::out | std::ios::trunc);
 
-    // 3) postings.bin (let InvertedIndex handle its own atomic file or write_atomic here)
-    // Best: write postings.bin.tmp then rename:
-    write_atomic(postings_path,
-                 [&](std::ofstream &out)
-                 {
-                     // easiest approach: have InvertedIndex::save write to a path.
-                     // But since we already opened an ofstream, we’ll delegate by temp path instead.
-                     // So: close this approach and do direct file-based save below.
-                 });
-    // The above placeholder isn't useful; do file-based atomic save instead:
-    // write postings to postings.bin.tmp and rename
+    // 3) postings.bin (write to temp then rename for atomicity)
     const fs::path postings_tmp = postings_path.string() + ".tmp";
     idx_.save(postings_tmp.string());
 
@@ -373,9 +354,19 @@ void SearchService::save(const std::string &index_dir) const
         throw std::runtime_error("Failed to commit index file: " + postings_path.string() + " (" + ec.message() + ")");
 }
 
+// CRITICAL FIX: Use double-buffering to minimize lock time during reload
 void SearchService::load(const std::string &index_dir)
 {
-    std::unique_lock lock(mu_); // load must be exclusive
+    // Load into temporary objects WITHOUT holding the lock
+    // This allows queries to continue while we're loading!
+
+    InvertedIndex new_idx;
+    std::unordered_map<int, size_t> new_doc_len;
+    std::unordered_map<int, std::string> new_doc_text;
+    int new_N = 0;
+    double new_avgdl = 0.0;
+
+    // All file I/O happens here without blocking queries
     fs::path dir(index_dir);
 
     // Required files
@@ -388,32 +379,27 @@ void SearchService::load(const std::string &index_dir)
     require_file(postings_path);
 
     // Parse index_meta.json
-
     Json::Value meta;
     {
         std::ifstream in(meta_path);
         if (!in)
         {
-            throw std::runtime_error("Failed to open index_meta.json" + meta_path.string());
+            throw std::runtime_error("Failed to open index_meta.json: " + meta_path.string());
         }
-
         in >> meta;
     }
 
     int schema_version = meta.get("schema_version", 0).asInt();
     if (schema_version != 1)
     {
-        // Per Phase 2.3 spec: Error message format "Unsupported schema version: <version>"
         throw std::runtime_error("Unsupported schema version: " + std::to_string(schema_version));
     }
 
     // Restore corpus stats
-    N_ = meta.get("N", 0).asInt();
-    avgdl_ = meta.get("avgdl", 0.0).asDouble();
+    new_N = meta.get("N", 0).asInt();
+    new_avgdl = meta.get("avgdl", 0.0).asDouble();
 
     // Load documents from docs.jsonl
-    doc_text_.clear();
-    doc_len_.clear();
     {
         std::ifstream in(docs_path);
         if (!in)
@@ -439,12 +425,23 @@ void SearchService::load(const std::string &index_dir)
                 throw std::runtime_error("Invalid docId in docs.jsonl");
             }
 
-            doc_text_[docId] = text;
+            new_doc_text[docId] = text;
             // Calculate document length (token count)
-            doc_len_[docId] = (int)tokenize(text).size();
+            new_doc_len[docId] = tokenize(text).size();
         }
     }
 
     // Load postings from postings.bin
-    idx_.load(postings_path.string());
+    new_idx.load(postings_path.string());
+
+    // OPTIMIZATION: Only hold lock for the swap operation (microseconds instead of seconds!)
+    {
+        std::unique_lock lock(mu_);
+        idx_ = std::move(new_idx);
+        doc_len_ = std::move(new_doc_len);
+        doc_text_ = std::move(new_doc_text);
+        N_ = new_N;
+        avgdl_ = new_avgdl;
+    }
+    // Lock released - queries can resume immediately!
 }

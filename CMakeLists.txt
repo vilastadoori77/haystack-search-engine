@@ -31,6 +31,13 @@ add_executable(unit_tests
   tests/test_cli_lifecycle.cpp
   tests/test_cli_error_messages.cpp
   tests/test_cli_exit_codes.cpp
+)
+
+target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
+
+# Runtime tests: run subprocesses (e.g. searchd) with timeouts so they don't hang
+add_executable(runtime_tests
+  tests/runtime_test_common.cpp
   tests/test_runtime_port_binding.cpp
   tests/test_runtime_startup_message.cpp
   tests/test_runtime_shutdown.cpp
@@ -42,14 +49,19 @@ add_executable(unit_tests
   tests/test_runtime_safety.cpp
   tests/test_runtime_shutdown_idempotency.cpp
 )
-
-target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
+target_include_directories(runtime_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(runtime_tests PRIVATE Catch2::Catch2WithMain)
 
 enable_testing()
-add_test(NAME unit_tests COMMAND unit_tests)
-# Set timeout for tests (300 seconds = 5 minutes) to prevent ctest from hanging
-# Run in test mode (don't wait for user input) and allow parallel execution
+add_test(NAME unit_tests COMMAND unit_tests --verbosity high)
 set_tests_properties(unit_tests PROPERTIES 
+    TIMEOUT 300
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+add_test(NAME runtime_tests COMMAND runtime_tests --verbosity high)
+set_tests_properties(runtime_tests PROPERTIES
+    RUN_SERIAL TRUE
     TIMEOUT 300
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
@@ -66,6 +78,7 @@ target_compile_features(search_core PUBLIC cxx_std_17)
 
 target_link_libraries(haystack PRIVATE search_core)
 target_link_libraries(unit_tests PRIVATE search_core)
+target_link_libraries(runtime_tests PRIVATE search_core)
 
 find_package(Drogon CONFIG REQUIRED)
 target_link_libraries(search_core PUBLIC Drogon::Drogon)

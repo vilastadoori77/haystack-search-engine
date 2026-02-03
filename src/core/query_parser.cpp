@@ -5,8 +5,10 @@ ParsedQuery parse_query(const std::string &q)
 {
     ParsedQuery pq;
 
-    // simple split by spaces to preserve '-' and OR token
+    // Simple split by spaces to preserve '-' and OR token
     std::vector<std::string> parts;
+    parts.reserve(16); // OPTIMIZATION: Reserve typical query size
+
     std::string cur;
     for (char c : q)
     {
@@ -14,17 +16,23 @@ ParsedQuery parse_query(const std::string &q)
         {
             if (!cur.empty())
             {
-                parts.push_back(cur);
+                parts.push_back(std::move(cur)); // OPTIMIZATION: Move instead of copy
                 cur.clear();
             }
         }
         else
+        {
             cur.push_back(c);
+        }
     }
     if (!cur.empty())
-        parts.push_back(cur);
+        parts.push_back(std::move(cur));
 
-    for (auto p : parts)
+    // Reserve space for terms (optimization)
+    pq.terms.reserve(parts.size());
+    pq.not_terms.reserve(parts.size() / 4); // Usually fewer NOT terms
+
+    for (auto &p : parts)
     {
         if (p == "OR" || p == "or")
         {
@@ -32,22 +40,32 @@ ParsedQuery parse_query(const std::string &q)
             continue;
         }
         if (!p.empty() && p[0] == '-')
+        {
             pq.not_terms.push_back(p.substr(1));
+        }
         else
-            pq.terms.push_back(p);
+        {
+            pq.terms.push_back(std::move(p)); // OPTIMIZATION: Move
+        }
     }
 
-    // normalize (lowercase + split punctuation) using tokenizer
-    auto norm = [&](const std::vector<std::string> &in)
+    // Normalize (lowercase + split punctuation) using tokenizer
+    auto norm = [](const std::vector<std::string> &in) -> std::vector<std::string>
     {
         std::vector<std::string> out;
-        for (auto &x : in)
+        out.reserve(in.size() * 2); // OPTIMIZATION: Reserve (terms may split)
+
+        for (const auto &x : in)
         {
             auto t = tokenize(x);
-            out.insert(out.end(), t.begin(), t.end());
+            for (auto &token : t)
+            {
+                out.push_back(std::move(token)); // Move tokens
+            }
         }
         return out;
     };
+
     pq.terms = norm(pq.terms);
     pq.not_terms = norm(pq.not_terms);
 

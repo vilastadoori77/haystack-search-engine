@@ -3,6 +3,7 @@
 // Do NOT add new behavior, flags, or assumptions beyond what is specified.
 // Tests validate stdout/stderr separation.
 
+#include "runtime_test_common.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
 #include <fstream>
@@ -55,58 +56,10 @@ static std::string find_searchd_path()
     return "./searchd";
 }
 
+// Wrapper for the safe subprocess helper with 5-second timeout
 static int run_command_capture_output(const std::string &cmd, std::string &stdout_output, std::string &stderr_output)
 {
-    pid_t pid = getpid();
-    std::string stdout_file_path = "/tmp/haystack_stdout_" + std::to_string(pid);
-    std::string stderr_file_path = "/tmp/haystack_stderr_" + std::to_string(pid);
-    std::string exit_code_file = "/tmp/haystack_exit_" + std::to_string(pid);
-    
-    std::string full_cmd = "(" + cmd + " >" + stdout_file_path + " 2>" + stderr_file_path + "; echo $? >" + exit_code_file + ")";
-    std::system(full_cmd.c_str());
-
-    std::ifstream stdout_file(stdout_file_path);
-    std::ifstream stderr_file(stderr_file_path);
-    std::ifstream exit_file(exit_code_file);
-
-    stdout_output.clear();
-    stderr_output.clear();
-
-    if (stdout_file)
-    {
-        stdout_output.assign((std::istreambuf_iterator<char>(stdout_file)),
-                             std::istreambuf_iterator<char>());
-        stdout_file.close();
-    }
-
-    if (stderr_file)
-    {
-        stderr_output.assign((std::istreambuf_iterator<char>(stderr_file)),
-                             std::istreambuf_iterator<char>());
-        stderr_file.close();
-    }
-
-    int exit_code = -1;
-    if (exit_file)
-    {
-        std::string exit_str;
-        std::getline(exit_file, exit_str);
-        if (!exit_str.empty())
-        {
-            try {
-                exit_code = std::stoi(exit_str);
-            } catch (...) {
-                exit_code = -1;
-            }
-        }
-        exit_file.close();
-    }
-
-    std::remove(stdout_file_path.c_str());
-    std::remove(stderr_file_path.c_str());
-    std::remove(exit_code_file.c_str());
-
-    return exit_code;
+    return runtime_test::run_command_split_output(cmd, stdout_output, stderr_output, 5);
 }
 
 static std::string create_temp_dir()

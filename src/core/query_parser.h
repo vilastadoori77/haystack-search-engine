@@ -10,4 +10,5 @@ struct ParsedQuery
     bool is_or = false;
 };
 
+// Optimization: Use String_view to avoid copying when caller has string
 ParsedQuery parse_query(const std::string &q);

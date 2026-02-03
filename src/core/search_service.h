@@ -28,7 +28,7 @@ private:
     InvertedIndex idx_;
 
     // docId -> document length (token count)
-    std::unordered_map<int, int> doc_len_;
+    std::unordered_map<int, size_t> doc_len_;
     std::unordered_map<int, std::string> doc_text_;
 
     // number of documents indexed
