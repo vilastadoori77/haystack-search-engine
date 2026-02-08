@@ -38,6 +38,7 @@ target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
 # Runtime tests: run subprocesses (e.g. searchd) with timeouts so they don't hang
 add_executable(runtime_tests
   tests/runtime_test_common.cpp
+  tests/test_runtime_cleanup.cpp
   tests/test_runtime_port_binding.cpp
   tests/test_runtime_startup_message.cpp
   tests/test_runtime_shutdown.cpp

@@ -74,6 +74,19 @@ static std::string get_arg_value(int argc, char **argv, const std::string &key)
     return "";
 }
 
+static bool has_value_for_flag(int argc, char **argv, const std::string &key)
+{
+    for (int i = 1; i + 1 < argc; ++i)
+    {
+        if (std::string(argv[i]) == key)
+        {
+            std::string next = argv[i + 1];
+            return !next.empty() && next.rfind("--", 0) != 0; // Next arg should not be another flag
+        }
+    }
+    return false;
+}
+
 static std::string getenv_str(const char *name)
 {
     const char *v = std::getenv(name);
@@ -231,7 +244,8 @@ int main(int argc, char **argv)
         // with expansion:
         // 3 == 2
 
-        if (!has_flag(argc, argv, "--docs"))
+        // if (!has_flag(argc, argv, "--docs"))
+        if (!has_value_for_flag(argc, argv, "--docs"))
         {
             std::cerr << "Error: --docs <path> is required when using --index mode\n";
             return 2;
@@ -261,7 +275,8 @@ int main(int argc, char **argv)
             return 2;
         }
         // Fix Explicit --port validation for serve mode.
-        if (!has_flag(argc, argv, "--port"))
+        // if (!has_flag(argc, argv, "--port"))
+        if (!has_value_for_flag(argc, argv, "--port"))
         {
             std::cerr << "Error: --port <port> is required when using --serve mode\n";
             return 2;
@@ -345,7 +360,7 @@ int main(int argc, char **argv)
            std::function<void(const drogon::HttpResponsePtr &)> &&callback)
         {
             auto resp = drogon::HttpResponse::newHttpResponse();
-            
+
             // Phase 2.4: Return HTTP 200 ONLY when ready and not shutting down
             if (g_server_ready.load() && !g_shutdown_in_progress.load())
             {
@@ -442,23 +457,31 @@ int main(int argc, char **argv)
     // Print directly here since we've verified the port is available, and actual binding will succeed in run()
     // Use write() directly to file descriptor 1 (stdout) to bypass any buffering, even when redirected
     // Per spec: Print exactly ONE startup message
-    std::string msg = "Server started on port " + std::to_string(port) + " using index: " + in_dir + "\n";
-    write(1, msg.c_str(), msg.length()); // write() to fd 1 (stdout) - immediate, no buffering
-    fsync(1); // Force sync if stdout is a file
+    // std::string msg = "Server started on port " + std::to_string(port) + " using index: " + //in_dir + "\n";
+    // write(1, msg.c_str(), msg.length()); // write() to fd 1 (stdout) - immediate, no buffering
+    // fsync(1);                            // Force sync if stdout is a file
 
     // Phase 2.3: Register startup message callback as backup (should not be called if message already printed)
     // This is kept for compatibility but the message is printed above
-    drogon::app().registerBeginningAdvice([port, in_dir]()
-                                          { 
-                                            // Message already printed above, this callback should not execute
-                                          });
+    // drogon::app().registerBeginningAdvice([port, in_dir]()
+    //                                      {
+    // Message already printed above, this callback should not execute
+    //                                      });
 
-    // Phase 2.4: Register callback to mark server as ready after it starts accepting connections
-    drogon::app().registerBeginningAdvice([]()
+    // Phase 2.3: Print startup message only after server begins accepting connections.
+    // Phase 2.4: Mark server as ready immediately after startup message.
+    // IMPORTANT: Both actions combined in single callback to guarantee execution order.
+    drogon::app().registerBeginningAdvice([port, in_dir]()
                                           {
-                                            // Phase 2.4: Mark server as ready after HTTP server starts accepting connections
-                                            g_server_ready.store(true);
-                                          });
+                                              // Phase 2.4: This callback is invoked when the server starts accepting connections
+                                              // Print startup message here to ensure it's printed after port binding and index loading
+                                              std::string msg = "Server started on port " + std::to_string(port) + " using index: " + in_dir + "\n";
+                                              write(1, msg.c_str(), msg.length()); // write() to fd 1 (stdout) - immediate, no buffering
+                                              fsync(1);
+                                              
+                                              // Phase 2.4: Mark server as ready after HTTP server starts accepting connections
+                                              // This MUST happen after the startup message is printed
+                                              g_server_ready.store(true); });
 
     // Register the listener - actual binding happens during run()
     drogon::app().addListener("0.0.0.0", port);

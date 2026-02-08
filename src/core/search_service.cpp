@@ -149,11 +149,20 @@ std::vector<SearchHit> SearchService::search_with_snippets(const std::string &qu
         int id = p.first;
         double score = p.second;
 
+        /* std::string text;
+         auto it = doc_text_.find(id);
+         if (it != doc_text_.end())
+         {
+             text = it->second;
+         } */
         std::string text;
-        auto it = doc_text_.find(id);
-        if (it != doc_text_.end())
         {
-            text = it->second;
+            std::shared_lock lock(mu_);
+            auto it = doc_text_.find(id);
+            if (it != doc_text_.end())
+            {
+                text = it->second;
+            }
         }
         std::string snippet = make_snippet(text, pq.terms);
         hits.push_back({id, score, snippet});
