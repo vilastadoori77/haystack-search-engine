@@ -10,11 +10,143 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <cstdlib>
-#include <random>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
+
+// -----------------------------------------------------------------------------
+// Parsed single line from docs.jsonl (Phase 2.5 schema)
+// -----------------------------------------------------------------------------
+struct DocLine
+{
+    int docId = -1;
+    std::string file_name;
+    int page_number = -1;
+    std::string text;
+    bool did_ocr = false;
+    bool did_ocr_present = false;
+};
+
+static int parse_json_int(const std::string& line, const std::string& key)
+{
+    std::string pattern = "\"" + key + "\":";
+    size_t pos = line.find(pattern);
+    if (pos == std::string::npos)
+        return -1;
+    pos += pattern.size();
+    while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t'))
+        ++pos;
+    if (pos >= line.size() || !std::isdigit(static_cast<unsigned char>(line[pos])))
+        return -1;
+    int val = 0;
+    while (pos < line.size() && std::isdigit(static_cast<unsigned char>(line[pos])))
+    {
+        val = val * 10 + (line[pos] - '0');
+        ++pos;
+    }
+    return val;
+}
+
+static std::string parse_json_string(const std::string& line, const std::string& key)
+{
+    std::string pattern = "\"" + key + "\":\"";
+    size_t start = line.find(pattern);
+    if (start == std::string::npos)
+        return "";
+    start += pattern.size();
+    size_t end = start;
+    while (end < line.size())
+    {
+        if (line[end] == '\\' && end + 1 < line.size())
+            end += 2;
+        else if (line[end] == '"')
+            break;
+        else
+            ++end;
+    }
+    if (end > line.size())
+        return "";
+    return line.substr(start, end - start);
+}
+
+static std::pair<bool, bool> parse_json_did_ocr(const std::string& line)
+{
+    if (line.find("\"did_ocr\":true") != std::string::npos)
+        return {true, true};
+    if (line.find("\"did_ocr\":false") != std::string::npos)
+        return {false, true};
+    return {false, false};
+}
+
+static std::vector<DocLine> parse_docs_jsonl(const std::string& content)
+{
+    std::vector<DocLine> docs;
+    std::istringstream is(content);
+    std::string line;
+    while (std::getline(is, line))
+    {
+        if (line.empty())
+            continue;
+        DocLine d;
+        d.docId = parse_json_int(line, "docId");
+        d.file_name = parse_json_string(line, "file_name");
+        d.page_number = parse_json_int(line, "page_number");
+        d.text = parse_json_string(line, "text");
+        auto did_ocr = parse_json_did_ocr(line);
+        d.did_ocr = did_ocr.first;
+        d.did_ocr_present = did_ocr.second;
+        if (d.docId >= 0)
+            docs.push_back(d);
+    }
+    return docs;
+}
+
+static void require_docid_file_page_order(const std::vector<DocLine>& docs)
+{
+    REQUIRE_FALSE(docs.empty());
+    std::string prev_file;
+    int prev_page = 0;
+    for (size_t i = 0; i < docs.size(); ++i)
+    {
+        REQUIRE(docs[i].docId == static_cast<int>(i + 1));
+        REQUIRE(docs[i].page_number >= 1);
+        if (i > 0)
+        {
+            bool same_file = (docs[i].file_name == prev_file);
+            if (same_file)
+                REQUIRE(docs[i].page_number > prev_page);
+            else
+                REQUIRE(docs[i].file_name > prev_file);
+        }
+        prev_file = docs[i].file_name;
+        prev_page = docs[i].page_number;
+    }
+}
+
+static void require_canonical_text_format(const std::string& text)
+{
+    REQUIRE_FALSE(text.empty());
+    REQUIRE(text.find('\n') != std::string::npos);
+}
+
+static void require_no_partial_index(const std::string& out_dir)
+{
+    if (!fs::exists(out_dir))
+        return;
+    for (const auto& e : fs::directory_iterator(out_dir))
+    {
+        std::string name = e.path().filename().string();
+        REQUIRE(name.find(".tmp") == std::string::npos);
+        REQUIRE(name.find(".partial") == std::string::npos);
+    }
+    if (fs::exists(out_dir + "/docs.jsonl"))
+    {
+        REQUIRE(fs::exists(out_dir + "/index_meta.json"));
+        REQUIRE(fs::exists(out_dir + "/postings.bin"));
+    }
+}
 
 static std::string find_searchd_path()
 {
@@ -75,10 +207,10 @@ static std::string read_file(const std::string& path)
     return os.str();
 }
 
-// -----------------------------------------------------------------------------
-// 1. Deterministic folder traversal
-// -----------------------------------------------------------------------------
-TEST_CASE("Phase 2.5: Deterministic folder traversal order", "[phase2_5][traversal]")
+// =============================================================================
+// 1. docId determinism
+// =============================================================================
+TEST_CASE("Phase 2.5: docId determinism — exact mapping and logical order", "[phase2_5][traversal][determinism]")
 {
     std::string docs_dir = create_temp_dir("phase25_traversal_");
     std::string out_dir = create_temp_dir("phase25_out_traversal_");
@@ -96,43 +228,70 @@ TEST_CASE("Phase 2.5: Deterministic folder traversal order", "[phase2_5][travers
 
     std::string docs_jsonl = read_file(out_dir + "/docs.jsonl");
     REQUIRE_FALSE(docs_jsonl.empty());
-    // Deterministic order: a_first, b_second, c_third (alphabetical by path)
-    REQUIRE(docs_jsonl.find("\"docId\":1") != std::string::npos);
-    REQUIRE(docs_jsonl.find("\"docId\":2") != std::string::npos);
-    REQUIRE(docs_jsonl.find("\"docId\":3") != std::string::npos);
+    std::vector<DocLine> parsed_docs = parse_docs_jsonl(docs_jsonl);
+    REQUIRE(parsed_docs.size() == 3u);
+    REQUIRE(parsed_docs[0].docId == 1);
+    REQUIRE(parsed_docs[0].file_name == "a_first.txt");
+    REQUIRE(parsed_docs[0].page_number == 1);
+    REQUIRE(parsed_docs[1].docId == 2);
+    REQUIRE(parsed_docs[1].file_name == "b_second.txt");
+    REQUIRE(parsed_docs[1].page_number == 1);
+    REQUIRE(parsed_docs[2].docId == 3);
+    REQUIRE(parsed_docs[2].file_name == "c_third.txt");
+    REQUIRE(parsed_docs[2].page_number == 1);
+    require_docid_file_page_order(parsed_docs);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 2. UTF-8 byte-order path sorting
-// -----------------------------------------------------------------------------
-TEST_CASE("Phase 2.5: Path sort uses UTF-8 byte order", "[phase2_5][sort]")
+// =============================================================================
+// 2. UTF-8 path sorting
+// =============================================================================
+TEST_CASE("Phase 2.5: Path sort uses normalized absolute path (UTF-8 byte order)", "[phase2_5][sort]")
 {
     std::string docs_dir = create_temp_dir("phase25_utf8_");
     std::string out_dir = create_temp_dir("phase25_out_utf8_");
     std::string searchd = find_searchd_path();
 
-    write_file(docs_dir + "/a.txt", "a");
-    write_file(docs_dir + "/z.txt", "z");
+    fs::create_directories(docs_dir + "/a");
+    fs::create_directories(docs_dir + "/b");
+    write_file(docs_dir + "/a/x.txt", "from_a");
+    write_file(docs_dir + "/b/y.txt", "from_b");
 
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
 
-    cleanup_temp_dir(docs_dir);
     REQUIRE(code == 0);
-    std::string docs_jsonl = read_file(out_dir + "/docs.jsonl");
-    size_t pos_a = docs_jsonl.find("a.txt");
-    size_t pos_z = docs_jsonl.find("z.txt");
-    REQUIRE(pos_a != std::string::npos);
-    REQUIRE(pos_z != std::string::npos);
-    REQUIRE(pos_a < pos_z);
+    std::vector<DocLine> parsed = parse_docs_jsonl(read_file(out_dir + "/docs.jsonl"));
+    REQUIRE(parsed.size() == 2u);
+    REQUIRE(parsed[0].file_name == "x.txt");
+    REQUIRE(parsed[1].file_name == "y.txt");
+    REQUIRE(parsed[0].docId == 1);
+    REQUIRE(parsed[1].docId == 2);
+    require_docid_file_page_order(parsed);
+
+    std::string docs_dir2 = create_temp_dir("phase25_utf8b_");
+    std::string out_dir2 = create_temp_dir("phase25_out_utf8b_");
+    fs::create_directories(docs_dir2 + "/a");
+    fs::create_directories(docs_dir2 + "/b");
+    write_file(docs_dir2 + "/a/x.txt", "from_a");
+    write_file(docs_dir2 + "/b/y.txt", "from_b");
+    auto [code2, out2] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir2 + "\" --out \"" + out_dir2 + "\" 2>&1", 10);
+    REQUIRE(code2 == 0);
+    std::vector<DocLine> parsed2 = parse_docs_jsonl(read_file(out_dir2 + "/docs.jsonl"));
+    REQUIRE(parsed2.size() == 2u);
+    REQUIRE(parsed2[0].file_name == parsed[0].file_name);
+    REQUIRE(parsed2[1].file_name == parsed[1].file_name);
+    cleanup_temp_dir(docs_dir);
+    cleanup_temp_dir(docs_dir2);
     cleanup_temp_dir(out_dir);
+    cleanup_temp_dir(out_dir2);
 }
 
-// -----------------------------------------------------------------------------
-// 3. Deterministic docId assignment
-// -----------------------------------------------------------------------------
-TEST_CASE("Phase 2.5: Identical input produces identical docIds", "[phase2_5][determinism]")
+// =============================================================================
+// 3. Determinism: identical input, triple-run byte-identical
+// =============================================================================
+TEST_CASE("Phase 2.5: Identical input produces identical docIds and mapping", "[phase2_5][determinism]")
 {
     std::string docs_dir = create_temp_dir("phase25_det_");
     std::string out1 = create_temp_dir("phase25_out1_");
@@ -150,16 +309,59 @@ TEST_CASE("Phase 2.5: Identical input produces identical docIds", "[phase2_5][de
     cleanup_temp_dir(docs_dir);
     REQUIRE(c1 == 0);
     REQUIRE(c2 == 0);
-    std::string docs1 = read_file(out1 + "/docs.jsonl");
-    std::string docs2 = read_file(out2 + "/docs.jsonl");
-    REQUIRE(docs1 == docs2);
+    std::vector<DocLine> parsed1 = parse_docs_jsonl(read_file(out1 + "/docs.jsonl"));
+    std::vector<DocLine> parsed2 = parse_docs_jsonl(read_file(out2 + "/docs.jsonl"));
+    REQUIRE(parsed1.size() == parsed2.size());
+    for (size_t i = 0; i < parsed1.size(); ++i)
+    {
+        REQUIRE(parsed1[i].docId == parsed2[i].docId);
+        REQUIRE(parsed1[i].file_name == parsed2[i].file_name);
+        REQUIRE(parsed1[i].page_number == parsed2[i].page_number);
+    }
     cleanup_temp_dir(out1);
     cleanup_temp_dir(out2);
 }
 
-// -----------------------------------------------------------------------------
-// 4. Parallel execution determinism (contract only; implementation verifies)
-// -----------------------------------------------------------------------------
+TEST_CASE("Phase 2.5: Triple-run produces byte-identical docs.jsonl", "[phase2_5][determinism]")
+{
+    std::string docs_dir = create_temp_dir("phase25_triple_");
+    std::string out1 = create_temp_dir("phase25_triple_out1_");
+    std::string out2 = create_temp_dir("phase25_triple_out2_");
+    std::string out3 = create_temp_dir("phase25_triple_out3_");
+    std::string searchd = find_searchd_path();
+
+    write_file(docs_dir + "/a.txt", "alpha");
+    write_file(docs_dir + "/b.txt", "beta");
+    write_file(docs_dir + "/c.txt", "gamma");
+
+    auto [code1, o1] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out1 + "\" 2>&1", 10);
+    auto [code2, o2] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out2 + "\" 2>&1", 10);
+    auto [code3, o3] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out3 + "\" 2>&1", 10);
+
+    cleanup_temp_dir(docs_dir);
+    REQUIRE(code1 == 0);
+    REQUIRE(code2 == 0);
+    REQUIRE(code3 == 0);
+    std::string raw1 = read_file(out1 + "/docs.jsonl");
+    std::string raw2 = read_file(out2 + "/docs.jsonl");
+    std::string raw3 = read_file(out3 + "/docs.jsonl");
+    REQUIRE(raw1 == raw2);
+    REQUIRE(raw2 == raw3);
+    std::vector<DocLine> p = parse_docs_jsonl(raw1);
+    REQUIRE(p.size() == 3u);
+    for (size_t i = 0; i < p.size(); ++i)
+        REQUIRE(p[i].docId == static_cast<int>(i + 1));
+    cleanup_temp_dir(out1);
+    cleanup_temp_dir(out2);
+    cleanup_temp_dir(out3);
+}
+
+// =============================================================================
+// 4. Parallel determinism
+// =============================================================================
 TEST_CASE("Phase 2.5: docId order is logical not completion order", "[phase2_5][parallel]")
 {
     std::string docs_dir = create_temp_dir("phase25_par_");
@@ -174,159 +376,333 @@ TEST_CASE("Phase 2.5: docId order is logical not completion order", "[phase2_5][
 
     cleanup_temp_dir(docs_dir);
     REQUIRE(code == 0);
-    std::string docs_jsonl = read_file(out_dir + "/docs.jsonl");
-    size_t aa = docs_jsonl.find("aa.txt");
-    size_t bb = docs_jsonl.find("bb.txt");
-    REQUIRE(aa != std::string::npos);
-    REQUIRE(bb != std::string::npos);
-    REQUIRE(aa < bb);
+    std::vector<DocLine> parsed = parse_docs_jsonl(read_file(out_dir + "/docs.jsonl"));
+    REQUIRE(parsed.size() == 2u);
+    REQUIRE(parsed[0].docId == 1);
+    REQUIRE(parsed[0].file_name == "aa.txt");
+    REQUIRE(parsed[1].docId == 2);
+    REQUIRE(parsed[1].file_name == "bb.txt");
+    require_docid_file_page_order(parsed);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 5. OCR trigger threshold (contract; no real OCR)
-// -----------------------------------------------------------------------------
-TEST_CASE("Phase 2.5: Indexing succeeds with short text file", "[phase2_5][ocr_trigger]")
+// =============================================================================
+// 5. OCR trigger and spec: did_ocr, MIN_TEXT_CHARS, MIN_TOKEN_COUNT
+// =============================================================================
+TEST_CASE("Phase 2.5: Short text (below MIN_TEXT_CHARS) has did_ocr=true", "[phase2_5][ocr_trigger]")
 {
     std::string docs_dir = create_temp_dir("phase25_ocr_");
     std::string out_dir = create_temp_dir("phase25_out_ocr_");
     std::string searchd = find_searchd_path();
-
-    write_file(docs_dir + "/short.txt", "x"); // < MIN_TEXT_CHARS
+    write_file(docs_dir + "/short.txt", "x");
 
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
 
     cleanup_temp_dir(docs_dir);
     REQUIRE(code == 0);
+    std::vector<DocLine> parsed = parse_docs_jsonl(read_file(out_dir + "/docs.jsonl"));
+    REQUIRE(parsed.size() == 1u);
+    REQUIRE(parsed[0].did_ocr_present);
+    REQUIRE(parsed[0].did_ocr == true);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 6. Tokenizer consistency for MIN_TOKEN_COUNT (contract)
-// -----------------------------------------------------------------------------
-TEST_CASE("Phase 2.5: Token count uses indexing tokenizer", "[phase2_5][tokenizer]")
+TEST_CASE("Phase 2.5: Below MIN_TEXT_CHARS triggers OCR; at or above does not", "[phase2_5][ocr_spec]")
 {
-    // When Phase 2.5 exists: text with exactly MIN_TOKEN_COUNT tokens shall not trigger OCR.
+    std::string searchd = find_searchd_path();
+    std::string below(49u, 'x');
+    std::string docs_dir_below = create_temp_dir("phase25_ocr49_");
+    std::string out_below = create_temp_dir("phase25_out49_");
+    write_file(docs_dir_below + "/b.txt", below);
+    auto [c_below, o_below] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir_below + "\" --out \"" + out_below + "\" 2>&1", 10);
+    cleanup_temp_dir(docs_dir_below);
+    REQUIRE(c_below == 0);
+    std::vector<DocLine> p_below = parse_docs_jsonl(read_file(out_below + "/docs.jsonl"));
+    REQUIRE(p_below.size() == 1u);
+    REQUIRE(p_below[0].did_ocr_present);
+    REQUIRE(p_below[0].did_ocr == true);
+    cleanup_temp_dir(out_below);
+
+    std::string at_or_above(50u, 'y');
+    std::string docs_dir_at = create_temp_dir("phase25_ocr50_");
+    std::string out_at = create_temp_dir("phase25_out50_");
+    write_file(docs_dir_at + "/a.txt", at_or_above);
+    auto [c_at, o_at] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir_at + "\" --out \"" + out_at + "\" 2>&1", 10);
+    cleanup_temp_dir(docs_dir_at);
+    REQUIRE(c_at == 0);
+    std::vector<DocLine> p_at = parse_docs_jsonl(read_file(out_at + "/docs.jsonl"));
+    REQUIRE(p_at.size() == 1u);
+    REQUIRE(p_at[0].did_ocr_present);
+    REQUIRE(p_at[0].did_ocr == false);
+    cleanup_temp_dir(out_at);
+}
+
+TEST_CASE("Phase 2.5: Below MIN_TOKEN_COUNT triggers OCR; at MIN_TOKEN_COUNT does not", "[phase2_5][ocr_spec]")
+{
+    std::string searchd = find_searchd_path();
+    std::string nine_tokens = "one two three four five six seven eight nine";
+    std::string docs_dir9 = create_temp_dir("phase25_tok9_");
+    std::string out9 = create_temp_dir("phase25_out9_");
+    write_file(docs_dir9 + "/nine.txt", nine_tokens);
+    auto [c9, o9] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir9 + "\" --out \"" + out9 + "\" 2>&1", 10);
+    cleanup_temp_dir(docs_dir9);
+    REQUIRE(c9 == 0);
+    std::vector<DocLine> p9 = parse_docs_jsonl(read_file(out9 + "/docs.jsonl"));
+    REQUIRE(p9.size() == 1u);
+    REQUIRE(p9[0].did_ocr_present);
+    REQUIRE(p9[0].did_ocr == true);
+    cleanup_temp_dir(out9);
+
+    std::string ten_tokens = "one two three four five six seven eight nine ten";
+    std::string docs_dir10 = create_temp_dir("phase25_tok10_");
+    std::string out10 = create_temp_dir("phase25_out10_");
+    write_file(docs_dir10 + "/ten.txt", ten_tokens);
+    auto [c10, o10] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir10 + "\" --out \"" + out10 + "\" 2>&1", 10);
+    cleanup_temp_dir(docs_dir10);
+    REQUIRE(c10 == 0);
+    std::vector<DocLine> p10 = parse_docs_jsonl(read_file(out10 + "/docs.jsonl"));
+    REQUIRE(p10.size() == 1u);
+    REQUIRE(p10[0].did_ocr_present);
+    REQUIRE(p10[0].did_ocr == false);
+    cleanup_temp_dir(out10);
+}
+
+TEST_CASE("Phase 2.5: OCR output determinism — same input yields identical text across runs", "[phase2_5][ocr_spec]")
+{
+    std::string docs_dir = create_temp_dir("phase25_ocr_det_");
+    std::string out1 = create_temp_dir("phase25_ocr_det_out1_");
+    std::string out2 = create_temp_dir("phase25_ocr_det_out2_");
+    std::string searchd = find_searchd_path();
+    write_file(docs_dir + "/d.txt", "short");
+
+    auto [c1, o1] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out1 + "\" 2>&1", 10);
+    auto [c2, o2] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out2 + "\" 2>&1", 10);
+
+    cleanup_temp_dir(docs_dir);
+    REQUIRE(c1 == 0);
+    REQUIRE(c2 == 0);
+    std::vector<DocLine> p1 = parse_docs_jsonl(read_file(out1 + "/docs.jsonl"));
+    std::vector<DocLine> p2 = parse_docs_jsonl(read_file(out2 + "/docs.jsonl"));
+    REQUIRE(p1.size() == 1u);
+    REQUIRE(p2.size() == 1u);
+    REQUIRE(p1[0].text == p2[0].text);
+    cleanup_temp_dir(out1);
+    cleanup_temp_dir(out2);
+}
+
+TEST_CASE("Phase 2.5: At MIN_TOKEN_COUNT did_ocr=false and identical on re-run", "[phase2_5][tokenizer]")
+{
     std::string docs_dir = create_temp_dir("phase25_tok_");
     std::string out_dir = create_temp_dir("phase25_out_tok_");
     std::string searchd = find_searchd_path();
-
     write_file(docs_dir + "/ten.txt", "one two three four five six seven eight nine ten");
 
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
-
     cleanup_temp_dir(docs_dir);
     REQUIRE(code == 0);
+    std::vector<DocLine> parsed = parse_docs_jsonl(read_file(out_dir + "/docs.jsonl"));
+    REQUIRE(parsed.size() == 1u);
+    REQUIRE(parsed[0].did_ocr_present);
+    REQUIRE(parsed[0].did_ocr == false);
+
+    std::string docs_dir2 = create_temp_dir("phase25_tok2_");
+    std::string out_dir2 = create_temp_dir("phase25_out_tok2_");
+    write_file(docs_dir2 + "/ten.txt", "one two three four five six seven eight nine ten");
+    auto [code2, out2] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir2 + "\" --out \"" + out_dir2 + "\" 2>&1", 10);
+    REQUIRE(code2 == 0);
+    std::vector<DocLine> parsed2 = parse_docs_jsonl(read_file(out_dir2 + "/docs.jsonl"));
+    REQUIRE(parsed2.size() == 1u);
+    REQUIRE(parsed2[0].did_ocr == parsed[0].did_ocr);
+    cleanup_temp_dir(docs_dir2);
     cleanup_temp_dir(out_dir);
+    cleanup_temp_dir(out_dir2);
 }
 
-// -----------------------------------------------------------------------------
-// 7. Canonical merge ordering (text layer + newline + OCR)
-// -----------------------------------------------------------------------------
-TEST_CASE("Phase 2.5: Stored text order is text_layer then newline then OCR", "[phase2_5][canonical]")
+// =============================================================================
+// 6. Canonical text format
+// =============================================================================
+TEST_CASE("Phase 2.5: Canonical text format — newline between layer and OCR", "[phase2_5][canonical]")
 {
     std::string docs_dir = create_temp_dir("phase25_can_");
     std::string out_dir = create_temp_dir("phase25_out_can_");
     std::string searchd = find_searchd_path();
-
     write_file(docs_dir + "/doc.txt", "layer");
 
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
-
     cleanup_temp_dir(docs_dir);
     REQUIRE(code == 0);
-    std::string docs_jsonl = read_file(out_dir + "/docs.jsonl");
-    REQUIRE(docs_jsonl.find("layer") != std::string::npos);
+    std::vector<DocLine> parsed = parse_docs_jsonl(read_file(out_dir + "/docs.jsonl"));
+    REQUIRE(parsed.size() == 1u);
+    REQUIRE(parsed[0].text.find("layer") != std::string::npos);
+    require_canonical_text_format(parsed[0].text);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 8. Duplicate OCR + text allowance
-// -----------------------------------------------------------------------------
+// =============================================================================
+// 7. Duplicate content allowed
+// =============================================================================
 TEST_CASE("Phase 2.5: Duplicate text layer and OCR content allowed", "[phase2_5][duplicate]")
 {
-    // Spec: deduplication not required. Test only documents the contract.
     std::string docs_dir = create_temp_dir("phase25_dup_");
     std::string out_dir = create_temp_dir("phase25_out_dup_");
     std::string searchd = find_searchd_path();
-
     write_file(docs_dir + "/d.txt", "same same");
-
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
-
     cleanup_temp_dir(docs_dir);
     REQUIRE(code == 0);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 9. Metadata storage correctness
-// -----------------------------------------------------------------------------
-TEST_CASE("Phase 2.5: Index stores file_name and page_number", "[phase2_5][metadata]")
+// =============================================================================
+// 8. Metadata: file_name, page_number, did_ocr; .txt page_number 1
+// =============================================================================
+TEST_CASE("Phase 2.5: Index stores file_name, page_number, did_ocr; .txt page_number 1", "[phase2_5][metadata]")
 {
     std::string docs_dir = create_temp_dir("phase25_meta_");
     std::string out_dir = create_temp_dir("phase25_out_meta_");
     std::string searchd = find_searchd_path();
-
     write_file(docs_dir + "/m.txt", "meta");
-
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
-
     cleanup_temp_dir(docs_dir);
     REQUIRE(code == 0);
-    std::string docs_jsonl = read_file(out_dir + "/docs.jsonl");
-    // Phase 2.5: index MUST store file_name and page_number per spec
-    REQUIRE(docs_jsonl.find("file_name") != std::string::npos);
-    REQUIRE(docs_jsonl.find("page_number") != std::string::npos);
+    std::vector<DocLine> parsed = parse_docs_jsonl(read_file(out_dir + "/docs.jsonl"));
+    REQUIRE(parsed.size() == 1u);
+    REQUIRE(parsed[0].file_name == "m.txt");
+    REQUIRE(parsed[0].page_number == 1);
+    REQUIRE(parsed[0].did_ocr_present);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 10. Search response metadata correctness
-// -----------------------------------------------------------------------------
+// =============================================================================
+// 9. Page-level: one doc per page/file; page_number >= 1; docIds contiguous
+// =============================================================================
+TEST_CASE("Phase 2.5: One doc per page, page_number 1 for .txt, docIds file then page order", "[phase2_5][multipage]")
+{
+    std::string docs_dir = create_temp_dir("phase25_mp_");
+    std::string out_dir = create_temp_dir("phase25_out_mp_");
+    std::string searchd = find_searchd_path();
+    write_file(docs_dir + "/p1.txt", "page one");
+    write_file(docs_dir + "/p2.txt", "page two");
+    auto [code, out] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
+    cleanup_temp_dir(docs_dir);
+    REQUIRE(code == 0);
+    std::vector<DocLine> parsed = parse_docs_jsonl(read_file(out_dir + "/docs.jsonl"));
+    REQUIRE(parsed.size() == 2u);
+    REQUIRE(parsed[0].docId == 1);
+    REQUIRE(parsed[0].file_name == "p1.txt");
+    REQUIRE(parsed[0].page_number == 1);
+    REQUIRE(parsed[1].docId == 2);
+    REQUIRE(parsed[1].file_name == "p2.txt");
+    REQUIRE(parsed[1].page_number == 1);
+    require_docid_file_page_order(parsed);
+    cleanup_temp_dir(out_dir);
+}
+
+TEST_CASE("Phase 2.5: Exactly one doc per .txt file; doc count equals file count; page_number >= 1", "[phase2_5][multipage]")
+{
+    std::string docs_dir = create_temp_dir("phase25_pl_");
+    std::string out_dir = create_temp_dir("phase25_out_pl_");
+    std::string searchd = find_searchd_path();
+    int num_txt_files = 7;
+    for (int i = 0; i < num_txt_files; ++i)
+        write_file(docs_dir + "/f" + std::to_string(i) + ".txt", "content " + std::to_string(i));
+    auto [code, out] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 15);
+    cleanup_temp_dir(docs_dir);
+    REQUIRE(code == 0);
+    std::vector<DocLine> parsed = parse_docs_jsonl(read_file(out_dir + "/docs.jsonl"));
+    REQUIRE(static_cast<int>(parsed.size()) == num_txt_files);
+    for (size_t i = 0; i < parsed.size(); ++i)
+    {
+        REQUIRE(parsed[i].docId == static_cast<int>(i + 1));
+        REQUIRE(parsed[i].page_number >= 1);
+        REQUIRE(parsed[i].did_ocr_present);
+    }
+    require_docid_file_page_order(parsed);
+    cleanup_temp_dir(out_dir);
+}
+
+TEST_CASE("Phase 2.5: docIds are contiguous 1 to N with no gaps", "[phase2_5][multipage][determinism]")
+{
+    std::string docs_dir = create_temp_dir("phase25_contig_");
+    std::string out_dir = create_temp_dir("phase25_out_contig_");
+    std::string searchd = find_searchd_path();
+    write_file(docs_dir + "/a.txt", "a");
+    write_file(docs_dir + "/b.txt", "b");
+    write_file(docs_dir + "/c.txt", "c");
+    auto [code, out] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
+    cleanup_temp_dir(docs_dir);
+    REQUIRE(code == 0);
+    std::vector<DocLine> parsed = parse_docs_jsonl(read_file(out_dir + "/docs.jsonl"));
+    REQUIRE(parsed.size() == 3u);
+    for (size_t i = 0; i < parsed.size(); ++i)
+        REQUIRE(parsed[i].docId == static_cast<int>(i + 1));
+    cleanup_temp_dir(out_dir);
+}
+
+// =============================================================================
+// 10. Search response and metadata compatibility
+// =============================================================================
 TEST_CASE("Phase 2.5: Search response includes file_name and page_number", "[phase2_5][search_meta]")
 {
     std::string docs_dir = create_temp_dir("phase25_sm_");
     std::string out_dir = create_temp_dir("phase25_out_sm_");
     std::string searchd = find_searchd_path();
-
     write_file(docs_dir + "/q.txt", "queryable");
-
     auto [c1, o1] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
     cleanup_temp_dir(docs_dir);
     REQUIRE(c1 == 0);
-
     std::string serve_cmd = "(" + searchd + " --serve --in \"" + out_dir + "\" --port 18905 &); pid=$!; sleep 2; curl -s 'http://127.0.0.1:18905/search?q=queryable'; kill $pid 2>/dev/null";
     auto [c2, o2] = runtime_test::run_command_capture_output(serve_cmd, 8);
-    std::string search_out = o2;
-    // Phase 2.5: search response MUST include file_name and page_number per spec
-    REQUIRE(search_out.find("file_name") != std::string::npos);
-    REQUIRE(search_out.find("page_number") != std::string::npos);
+    REQUIRE(o2.find("file_name") != std::string::npos);
+    REQUIRE(o2.find("page_number") != std::string::npos);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 11. Unsupported file handling
-// -----------------------------------------------------------------------------
+TEST_CASE("Phase 2.5: Index with Phase 2.5 metadata loads without failure; unknown fields ignored", "[phase2_5][metadata_compat]")
+{
+    std::string docs_dir = create_temp_dir("phase25_compat_");
+    std::string out_dir = create_temp_dir("phase25_out_compat_");
+    std::string searchd = find_searchd_path();
+    write_file(docs_dir + "/c.txt", "compat");
+    auto [c1, o1] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
+    cleanup_temp_dir(docs_dir);
+    REQUIRE(c1 == 0);
+    std::string serve_cmd = "(" + searchd + " --serve --in \"" + out_dir + "\" --port 18906 &); pid=$!; sleep 2; curl -s -o /dev/null -w \"%{http_code}\" 'http://127.0.0.1:18906/search?q=compat'; kill $pid 2>/dev/null; wait $pid 2>/dev/null";
+    auto [c2, o2] = runtime_test::run_command_capture_output(serve_cmd, 8);
+    REQUIRE(o2.find("200") != std::string::npos);
+    cleanup_temp_dir(out_dir);
+}
+
+// =============================================================================
+// 11–16. Unsupported files, corrupted PDF, OCR failure, streaming, workers, OCR pool
+// =============================================================================
 TEST_CASE("Phase 2.5: Unsupported files ignored without exit 3", "[phase2_5][unsupported]")
 {
     std::string docs_dir = create_temp_dir("phase25_unsup_");
     std::string out_dir = create_temp_dir("phase25_out_unsup_");
     std::string searchd = find_searchd_path();
-
     write_file(docs_dir + "/a.txt", "a");
-    write_file(docs_dir + "/b.pdf", "%PDF-1.4 minimal"); // minimal pdf-like
+    write_file(docs_dir + "/b.pdf", "%PDF-1.4 minimal");
     write_file(docs_dir + "/c.docx", "unsupported");
-
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 15);
-
     cleanup_temp_dir(docs_dir);
     REQUIRE(code != 3);
     if (code == 0)
@@ -337,21 +713,15 @@ TEST_CASE("Phase 2.5: Unsupported files ignored without exit 3", "[phase2_5][uns
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 12. Corrupted PDF handling without exit 3
-// -----------------------------------------------------------------------------
 TEST_CASE("Phase 2.5: Corrupted PDF does not abort indexing", "[phase2_5][corrupt_pdf]")
 {
     std::string docs_dir = create_temp_dir("phase25_corrupt_");
     std::string out_dir = create_temp_dir("phase25_out_corrupt_");
     std::string searchd = find_searchd_path();
-
     write_file(docs_dir + "/good.txt", "good content");
     write_file(docs_dir + "/bad.pdf", "not a valid pdf");
-
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 15);
-
     cleanup_temp_dir(docs_dir);
     REQUIRE(code != 3);
     if (code == 0)
@@ -362,117 +732,105 @@ TEST_CASE("Phase 2.5: Corrupted PDF does not abort indexing", "[phase2_5][corrup
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 13. Single-page OCR failure isolation
-// -----------------------------------------------------------------------------
 TEST_CASE("Phase 2.5: Single-page OCR failure does not cause exit 3", "[phase2_5][ocr_fail]")
 {
     std::string docs_dir = create_temp_dir("phase25_ocrfail_");
     std::string out_dir = create_temp_dir("phase25_out_ocrfail_");
     std::string searchd = find_searchd_path();
-
     write_file(docs_dir + "/ok.txt", "ok");
-
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
-
     cleanup_temp_dir(docs_dir);
     REQUIRE(code == 0);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 14. Extremely large PDF streaming (simulated)
-// -----------------------------------------------------------------------------
 TEST_CASE("Phase 2.5: Indexing completes without loading all pages at once", "[phase2_5][streaming]")
 {
     std::string docs_dir = create_temp_dir("phase25_stream_");
     std::string out_dir = create_temp_dir("phase25_out_stream_");
     std::string searchd = find_searchd_path();
-
     for (int i = 0; i < 20; ++i)
         write_file(docs_dir + "/f" + std::to_string(i) + ".txt", "page " + std::to_string(i));
-
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 30);
-
     cleanup_temp_dir(docs_dir);
     REQUIRE(code == 0);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 15. Bounded worker pool enforcement (contract)
-// -----------------------------------------------------------------------------
 TEST_CASE("Phase 2.5: Indexing completes with bounded concurrency", "[phase2_5][workers]")
 {
     std::string docs_dir = create_temp_dir("phase25_work_");
     std::string out_dir = create_temp_dir("phase25_out_work_");
     std::string searchd = find_searchd_path();
-
     write_file(docs_dir + "/w.txt", "w");
-
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
-
     cleanup_temp_dir(docs_dir);
     REQUIRE(code == 0);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 16. Bounded OCR pool enforcement (contract)
-// -----------------------------------------------------------------------------
 TEST_CASE("Phase 2.5: OCR pool is bounded", "[phase2_5][ocr_pool]")
 {
     std::string docs_dir = create_temp_dir("phase25_pool_");
     std::string out_dir = create_temp_dir("phase25_out_pool_");
     std::string searchd = find_searchd_path();
-
     write_file(docs_dir + "/p.txt", "p");
-
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
-
     cleanup_temp_dir(docs_dir);
     REQUIRE(code == 0);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 17. Signal-safe shutdown integration (Phase 2.3)
-// -----------------------------------------------------------------------------
-TEST_CASE("Phase 2.5: Signal during indexing exits with 0 or 3", "[phase2_5][signal]")
+// =============================================================================
+// 17. Signal handling: SIGINT and SIGTERM; exit 0 or 3; no partial index
+// =============================================================================
+TEST_CASE("Phase 2.5: SIGINT during indexing exits 0 or 3 and leaves no partial index", "[phase2_5][signal]")
 {
     std::string docs_dir = create_temp_dir("phase25_sig_");
     std::string out_dir = create_temp_dir("phase25_out_sig_");
     std::string searchd = find_searchd_path();
-
-    for (int i = 0; i < 5; ++i)
-        write_file(docs_dir + "/s" + std::to_string(i) + ".txt", "content");
-
-    std::string cmd = searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\"";
-    auto [code, out] = runtime_test::run_command_capture_output(cmd + " 2>&1", 5);
-
+    for (int i = 0; i < 20; ++i)
+        write_file(docs_dir + "/s" + std::to_string(i) + ".txt", "content " + std::to_string(i));
+    std::string cmd = "(" + searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir +
+                      "\" &); pid=$!; sleep 2; kill -INT $pid 2>/dev/null; wait $pid";
+    auto [code, out] = runtime_test::run_command_capture_output(cmd + " 2>&1", 12);
     cleanup_temp_dir(docs_dir);
     REQUIRE((code == 0 || code == 3));
+    require_no_partial_index(out_dir);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 18. Atomic persistence guarantees (Phase 2.1)
-// -----------------------------------------------------------------------------
-TEST_CASE("Phase 2.5: No inconsistent partial index on failure", "[phase2_5][atomic]")
+TEST_CASE("Phase 2.5: SIGTERM during indexing exits 0 or 3 and leaves no partial index", "[phase2_5][signal]")
+{
+    std::string docs_dir = create_temp_dir("phase25_sigterm_");
+    std::string out_dir = create_temp_dir("phase25_out_sigterm_");
+    std::string searchd = find_searchd_path();
+    for (int i = 0; i < 20; ++i)
+        write_file(docs_dir + "/t" + std::to_string(i) + ".txt", "content " + std::to_string(i));
+    std::string cmd = "(" + searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir +
+                      "\" &); pid=$!; sleep 2; kill -TERM $pid 2>/dev/null; wait $pid";
+    auto [code, out] = runtime_test::run_command_capture_output(cmd + " 2>&1", 12);
+    cleanup_temp_dir(docs_dir);
+    REQUIRE((code == 0 || code == 3));
+    require_no_partial_index(out_dir);
+    cleanup_temp_dir(out_dir);
+}
+
+// =============================================================================
+// 18. Atomic persistence
+// =============================================================================
+TEST_CASE("Phase 2.5: Atomic persistence — no .tmp/.partial; complete index or none", "[phase2_5][atomic]")
 {
     std::string docs_dir = create_temp_dir("phase25_atomic_");
     std::string out_dir = create_temp_dir("phase25_out_atomic_");
     std::string searchd = find_searchd_path();
-
     write_file(docs_dir + "/x.txt", "x");
-
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
-
     cleanup_temp_dir(docs_dir);
     if (code == 0)
     {
@@ -480,20 +838,19 @@ TEST_CASE("Phase 2.5: No inconsistent partial index on failure", "[phase2_5][ato
         REQUIRE(fs::exists(out_dir + "/index_meta.json"));
         REQUIRE(fs::exists(out_dir + "/postings.bin"));
     }
+    require_no_partial_index(out_dir);
     cleanup_temp_dir(out_dir);
 }
 
-// -----------------------------------------------------------------------------
-// 19. No regression of Phase 2.2–2.4 behavior
-// -----------------------------------------------------------------------------
+// =============================================================================
+// 19. No regression of Phase 2.2–2.4
+// =============================================================================
 TEST_CASE("Phase 2.5: Phase 2.2–2.4 behavior unchanged", "[phase2_5][regression]")
 {
     std::string out_dir = create_temp_dir("phase25_reg_");
     std::string searchd = find_searchd_path();
-
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs /nonexistent --out \"" + out_dir + "\" 2>&1", 5);
-
     REQUIRE(code == 2);
     REQUIRE(out.find("Error") != std::string::npos);
     cleanup_temp_dir(out_dir);
@@ -502,10 +859,8 @@ TEST_CASE("Phase 2.5: Phase 2.2–2.4 behavior unchanged", "[phase2_5][regressio
 TEST_CASE("Phase 2.5: Exit codes 0, 2, 3 semantics preserved", "[phase2_5][exit_codes]")
 {
     std::string searchd = find_searchd_path();
-
     auto [c_help, o_help] = runtime_test::run_command_capture_output(searchd + " --help 2>&1", 2);
     REQUIRE(c_help == 0);
-
     auto [c_bad, o_bad] = runtime_test::run_command_capture_output(searchd + " --index 2>&1", 5);
     REQUIRE(c_bad == 2);
 }
