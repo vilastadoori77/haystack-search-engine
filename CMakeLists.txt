@@ -49,6 +49,7 @@ add_executable(runtime_tests
   tests/test_runtime_health_endpoint.cpp
   tests/test_runtime_safety.cpp
   tests/test_runtime_shutdown_idempotency.cpp
+  tests/test_phase2_5_pdf_ocr_ingestion.cpp
 )
 target_include_directories(runtime_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(runtime_tests PRIVATE Catch2::Catch2WithMain)

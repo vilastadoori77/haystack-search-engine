@@ -23,7 +23,7 @@ export function useHealthCheck() {
                 setHealth(response.status);
                 setLastChecked(new Date());
             }
-        } catch (error) {
+        } catch {
             if (mountedRef.current) {
                 setHealth('unhealthy');
                 setLastChecked(new Date());
