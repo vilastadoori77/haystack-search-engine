@@ -31,6 +31,7 @@ add_executable(unit_tests
   tests/test_cli_lifecycle.cpp
   tests/test_cli_error_messages.cpp
   tests/test_cli_exit_codes.cpp
+  tests/test_file_scanner.cpp
 )
 
 target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
@@ -77,9 +78,20 @@ add_library(search_core
 target_include_directories(search_core PUBLIC src)
 target_compile_features(search_core PUBLIC cxx_std_17)
 
+# Phase 2.5 ingestion (structure only; not linked to main flow yet)
+add_library(ingestion_phase25
+  src/ingestion/file_scanner.cpp
+  src/ingestion/document_builder.cpp
+  src/ingestion/ocr_policy.cpp
+  src/ingestion/txt_processor.cpp
+  src/ingestion/pdf_processor.cpp
+  src/ingestion/deterministic_aggregator.cpp
+)
+target_include_directories(ingestion_phase25 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_features(ingestion_phase25 PUBLIC cxx_std_17)
 
 target_link_libraries(haystack PRIVATE search_core)
-target_link_libraries(unit_tests PRIVATE search_core)
+target_link_libraries(unit_tests PRIVATE search_core ingestion_phase25)
 target_link_libraries(runtime_tests PRIVATE search_core)
 
 find_package(Drogon CONFIG REQUIRED)

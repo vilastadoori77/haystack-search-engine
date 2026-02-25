@@ -23,13 +23,15 @@ struct DocLine
 {
     int docId = -1;
     std::string file_name;
+    std::string file_type;
+    std::string source_path;
     int page_number = -1;
     std::string text;
     bool did_ocr = false;
     bool did_ocr_present = false;
 };
 
-static int parse_json_int(const std::string& line, const std::string& key)
+static int parse_json_int(const std::string &line, const std::string &key)
 {
     std::string pattern = "\"" + key + "\":";
     size_t pos = line.find(pattern);
@@ -49,7 +51,89 @@ static int parse_json_int(const std::string& line, const std::string& key)
     return val;
 }
 
-static std::string parse_json_string(const std::string& line, const std::string& key)
+static int hex_digit_value(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F')
+        return 10 + (c - 'A');
+    return -1;
+}
+
+static std::string unescape_json_string(const std::string &raw)
+{
+    std::string decoded;
+    decoded.reserve(raw.size());
+    for (size_t i = 0; i < raw.size(); ++i)
+    {
+        char c = raw[i];
+        if (c != '\\' || i + 1 >= raw.size())
+        {
+            decoded.push_back(c);
+            continue;
+        }
+
+        char esc = raw[++i];
+        switch (esc)
+        {
+        case '"':
+            decoded.push_back('"');
+            break;
+        case '\\':
+            decoded.push_back('\\');
+            break;
+        case '/':
+            decoded.push_back('/');
+            break;
+        case 'b':
+            decoded.push_back('\b');
+            break;
+        case 'f':
+            decoded.push_back('\f');
+            break;
+        case 'n':
+            decoded.push_back('\n');
+            break;
+        case 'r':
+            decoded.push_back('\r');
+            break;
+        case 't':
+            decoded.push_back('\t');
+            break;
+        case 'u':
+        {
+            // Minimal \uXXXX handling for deterministic tests.
+            if (i + 4 < raw.size())
+            {
+                int h1 = hex_digit_value(raw[i + 1]);
+                int h2 = hex_digit_value(raw[i + 2]);
+                int h3 = hex_digit_value(raw[i + 3]);
+                int h4 = hex_digit_value(raw[i + 4]);
+                if (h1 >= 0 && h2 >= 0 && h3 >= 0 && h4 >= 0)
+                {
+                    int codepoint = (h1 << 12) | (h2 << 8) | (h3 << 4) | h4;
+                    if (codepoint >= 0 && codepoint <= 0x7F)
+                        decoded.push_back(static_cast<char>(codepoint));
+                    else
+                        decoded.push_back('?');
+                    i += 4;
+                    break;
+                }
+            }
+            decoded.push_back('u');
+            break;
+        }
+        default:
+            decoded.push_back(esc);
+            break;
+        }
+    }
+    return decoded;
+}
+
+static std::string parse_json_string(const std::string &line, const std::string &key)
 {
     std::string pattern = "\"" + key + "\":\"";
     size_t start = line.find(pattern);
@@ -68,10 +152,10 @@ static std::string parse_json_string(const std::string& line, const std::string&
     }
     if (end > line.size())
         return "";
-    return line.substr(start, end - start);
+    return unescape_json_string(line.substr(start, end - start));
 }
 
-static std::pair<bool, bool> parse_json_did_ocr(const std::string& line)
+static std::pair<bool, bool> parse_json_did_ocr(const std::string &line)
 {
     if (line.find("\"did_ocr\":true") != std::string::npos)
         return {true, true};
@@ -80,7 +164,7 @@ static std::pair<bool, bool> parse_json_did_ocr(const std::string& line)
     return {false, false};
 }
 
-static std::vector<DocLine> parse_docs_jsonl(const std::string& content)
+static std::vector<DocLine> parse_docs_jsonl(const std::string &content)
 {
     std::vector<DocLine> docs;
     std::istringstream is(content);
@@ -92,6 +176,8 @@ static std::vector<DocLine> parse_docs_jsonl(const std::string& content)
         DocLine d;
         d.docId = parse_json_int(line, "docId");
         d.file_name = parse_json_string(line, "file_name");
+        d.file_type = parse_json_string(line, "file_type");
+        d.source_path = parse_json_string(line, "source_path");
         d.page_number = parse_json_int(line, "page_number");
         d.text = parse_json_string(line, "text");
         auto did_ocr = parse_json_did_ocr(line);
@@ -103,49 +189,86 @@ static std::vector<DocLine> parse_docs_jsonl(const std::string& content)
     return docs;
 }
 
-static void require_docid_file_page_order(const std::vector<DocLine>& docs)
+static void require_docid_file_page_order(const std::vector<DocLine> &docs)
 {
     REQUIRE_FALSE(docs.empty());
-    std::string prev_file;
+    std::string prev_file_key;
     int prev_page = 0;
     for (size_t i = 0; i < docs.size(); ++i)
     {
+        const std::string file_key =
+            docs[i].source_path.empty() ? docs[i].file_name : docs[i].source_path;
         REQUIRE(docs[i].docId == static_cast<int>(i + 1));
         REQUIRE(docs[i].page_number >= 1);
         if (i > 0)
         {
-            bool same_file = (docs[i].file_name == prev_file);
+            bool same_file = (file_key == prev_file_key);
             if (same_file)
                 REQUIRE(docs[i].page_number > prev_page);
             else
-                REQUIRE(docs[i].file_name > prev_file);
+                REQUIRE(file_key > prev_file_key);
         }
-        prev_file = docs[i].file_name;
+        prev_file_key = file_key;
         prev_page = docs[i].page_number;
     }
 }
 
-static void require_canonical_text_format(const std::string& text)
+static void require_canonical_text_format(const std::string &text)
 {
     REQUIRE_FALSE(text.empty());
     REQUIRE(text.find('\n') != std::string::npos);
 }
 
-static void require_no_partial_index(const std::string& out_dir)
+static void require_no_partial_index(const std::string &out_dir)
 {
     if (!fs::exists(out_dir))
         return;
-    for (const auto& e : fs::directory_iterator(out_dir))
+    std::vector<std::string> names;
+    for (const auto &e : fs::directory_iterator(out_dir))
     {
         std::string name = e.path().filename().string();
         REQUIRE(name.find(".tmp") == std::string::npos);
         REQUIRE(name.find(".partial") == std::string::npos);
+        names.push_back(name);
     }
     if (fs::exists(out_dir + "/docs.jsonl"))
     {
         REQUIRE(fs::exists(out_dir + "/index_meta.json"));
         REQUIRE(fs::exists(out_dir + "/postings.bin"));
+        REQUIRE(names.size() == 3u);
     }
+    else
+        REQUIRE(names.empty());
+}
+
+// Determinism: docs.jsonl must have exactly one line per document (no extra/malformed lines).
+static size_t count_nonempty_lines(const std::string &content)
+{
+    size_t n = 0;
+    std::istringstream is(content);
+    std::string line;
+    while (std::getline(is, line))
+        if (!line.empty())
+            ++n;
+    return n;
+}
+
+// Determinism: all docIds in parsed docs must be unique and contiguous 1..N.
+static void require_unique_docids(const std::vector<DocLine> &docs)
+{
+    std::vector<int> ids;
+    for (const auto &d : docs)
+        ids.push_back(d.docId);
+    std::sort(ids.begin(), ids.end());
+    for (size_t i = 0; i < ids.size(); ++i)
+        REQUIRE(ids[i] == static_cast<int>(i + 1));
+}
+
+TEST_CASE("Phase 2.5: JSON parser helper unescapes escaped text", "[phase2_5][json_parser]")
+{
+    std::string line = "{\"text\":\"layer\\nocr\\t\\\"q\\\"\"}";
+    std::string parsed = parse_json_string(line, "text");
+    REQUIRE(parsed == "layer\nocr\t\"q\"");
 }
 
 static std::string find_searchd_path()
@@ -160,13 +283,13 @@ static std::string find_searchd_path()
         candidates.push_back((cwd / "build" / "searchd").string());
     if (cwd.has_parent_path())
         candidates.push_back((cwd.parent_path() / "build" / "searchd").string());
-    for (const auto& c : candidates)
+    for (const auto &c : candidates)
         if (fs::exists(c) && fs::is_regular_file(c))
             return fs::absolute(c).string();
     return "./searchd";
 }
 
-static std::string create_temp_dir(const std::string& prefix = "phase25_")
+static std::string create_temp_dir(const std::string &prefix = "phase25_")
 {
     std::string base = "/tmp/" + prefix;
     pid_t pid = getpid();
@@ -183,7 +306,7 @@ static std::string create_temp_dir(const std::string& prefix = "phase25_")
     throw std::runtime_error("Could not create temp directory");
 }
 
-static void write_file(const fs::path& p, const std::string& content)
+static void write_file(const fs::path &p, const std::string &content)
 {
     std::ofstream f(p);
     REQUIRE(f);
@@ -191,13 +314,13 @@ static void write_file(const fs::path& p, const std::string& content)
     f.close();
 }
 
-static void cleanup_temp_dir(const std::string& dir)
+static void cleanup_temp_dir(const std::string &dir)
 {
     if (fs::exists(dir))
         fs::remove_all(dir);
 }
 
-static std::string read_file(const std::string& path)
+static std::string read_file(const std::string &path)
 {
     std::ifstream f(path);
     if (!f)
@@ -352,11 +475,33 @@ TEST_CASE("Phase 2.5: Triple-run produces byte-identical docs.jsonl", "[phase2_5
     REQUIRE(raw2 == raw3);
     std::vector<DocLine> p = parse_docs_jsonl(raw1);
     REQUIRE(p.size() == 3u);
+    REQUIRE(count_nonempty_lines(raw1) == p.size());
+    require_unique_docids(p);
     for (size_t i = 0; i < p.size(); ++i)
         REQUIRE(p[i].docId == static_cast<int>(i + 1));
     cleanup_temp_dir(out1);
     cleanup_temp_dir(out2);
     cleanup_temp_dir(out3);
+}
+
+TEST_CASE("Phase 2.5: docId uniqueness and docs.jsonl one line per doc", "[phase2_5][determinism]")
+{
+    std::string docs_dir = create_temp_dir("phase25_uniq_");
+    std::string out_dir = create_temp_dir("phase25_out_uniq_");
+    std::string searchd = find_searchd_path();
+    write_file(docs_dir + "/a.txt", "a");
+    write_file(docs_dir + "/b.txt", "b");
+    write_file(docs_dir + "/c.txt", "c");
+    auto [code, out] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
+    cleanup_temp_dir(docs_dir);
+    REQUIRE(code == 0);
+    std::string raw = read_file(out_dir + "/docs.jsonl");
+    std::vector<DocLine> parsed = parse_docs_jsonl(raw);
+    REQUIRE(parsed.size() == 3u);
+    REQUIRE(count_nonempty_lines(raw) == parsed.size());
+    require_unique_docids(parsed);
+    cleanup_temp_dir(out_dir);
 }
 
 // =============================================================================
@@ -497,6 +642,25 @@ TEST_CASE("Phase 2.5: OCR output determinism — same input yields identical tex
     cleanup_temp_dir(out2);
 }
 
+TEST_CASE("Phase 2.5: Every indexed document has did_ocr metadata", "[phase2_5][ocr_spec]")
+{
+    std::string docs_dir = create_temp_dir("phase25_ocr_every_");
+    std::string out_dir = create_temp_dir("phase25_out_ocr_every_");
+    std::string searchd = find_searchd_path();
+    write_file(docs_dir + "/u.txt", "under");
+    write_file(docs_dir + "/v.txt", "enough text here to exceed min chars threshold");
+    write_file(docs_dir + "/w.txt", "x");
+    auto [code, out] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
+    cleanup_temp_dir(docs_dir);
+    REQUIRE(code == 0);
+    std::vector<DocLine> parsed = parse_docs_jsonl(read_file(out_dir + "/docs.jsonl"));
+    REQUIRE(parsed.size() == 3u);
+    for (const auto &d : parsed)
+        REQUIRE(d.did_ocr_present);
+    cleanup_temp_dir(out_dir);
+}
+
 TEST_CASE("Phase 2.5: At MIN_TOKEN_COUNT did_ocr=false and identical on re-run", "[phase2_5][tokenizer]")
 {
     std::string docs_dir = create_temp_dir("phase25_tok_");
@@ -567,7 +731,7 @@ TEST_CASE("Phase 2.5: Duplicate text layer and OCR content allowed", "[phase2_5]
 // =============================================================================
 // 8. Metadata: file_name, page_number, did_ocr; .txt page_number 1
 // =============================================================================
-TEST_CASE("Phase 2.5: Index stores file_name, page_number, did_ocr; .txt page_number 1", "[phase2_5][metadata]")
+TEST_CASE("Phase 2.5: Index stores file_name, page_number, did_ocr, file_type, source_path; .txt page_number 1", "[phase2_5][metadata]")
 {
     std::string docs_dir = create_temp_dir("phase25_meta_");
     std::string out_dir = create_temp_dir("phase25_out_meta_");
@@ -582,6 +746,8 @@ TEST_CASE("Phase 2.5: Index stores file_name, page_number, did_ocr; .txt page_nu
     REQUIRE(parsed[0].file_name == "m.txt");
     REQUIRE(parsed[0].page_number == 1);
     REQUIRE(parsed[0].did_ocr_present);
+    REQUIRE(parsed[0].file_type == "txt");
+    REQUIRE_FALSE(parsed[0].source_path.empty());
     cleanup_temp_dir(out_dir);
 }
 
@@ -671,6 +837,8 @@ TEST_CASE("Phase 2.5: Search response includes file_name and page_number", "[pha
     auto [c2, o2] = runtime_test::run_command_capture_output(serve_cmd, 8);
     REQUIRE(o2.find("file_name") != std::string::npos);
     REQUIRE(o2.find("page_number") != std::string::npos);
+    REQUIRE(o2.find("score") != std::string::npos);
+    REQUIRE(o2.find("snippet") != std::string::npos);
     cleanup_temp_dir(out_dir);
 }
 
@@ -795,8 +963,8 @@ TEST_CASE("Phase 2.5: SIGINT during indexing exits 0 or 3 and leaves no partial 
     std::string searchd = find_searchd_path();
     for (int i = 0; i < 20; ++i)
         write_file(docs_dir + "/s" + std::to_string(i) + ".txt", "content " + std::to_string(i));
-    std::string cmd = "(" + searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir +
-                      "\" &); pid=$!; sleep 2; kill -INT $pid 2>/dev/null; wait $pid";
+    std::string cmd = searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir +
+                      "\" & pid=$!; sleep 2; kill -INT \"$pid\" 2>/dev/null; wait \"$pid\"";
     auto [code, out] = runtime_test::run_command_capture_output(cmd + " 2>&1", 12);
     cleanup_temp_dir(docs_dir);
     REQUIRE((code == 0 || code == 3));
@@ -811,8 +979,8 @@ TEST_CASE("Phase 2.5: SIGTERM during indexing exits 0 or 3 and leaves no partial
     std::string searchd = find_searchd_path();
     for (int i = 0; i < 20; ++i)
         write_file(docs_dir + "/t" + std::to_string(i) + ".txt", "content " + std::to_string(i));
-    std::string cmd = "(" + searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir +
-                      "\" &); pid=$!; sleep 2; kill -TERM $pid 2>/dev/null; wait $pid";
+    std::string cmd = searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir +
+                      "\" & pid=$!; sleep 2; kill -TERM \"$pid\" 2>/dev/null; wait \"$pid\"";
     auto [code, out] = runtime_test::run_command_capture_output(cmd + " 2>&1", 12);
     cleanup_temp_dir(docs_dir);
     REQUIRE((code == 0 || code == 3));
@@ -838,6 +1006,27 @@ TEST_CASE("Phase 2.5: Atomic persistence — no .tmp/.partial; complete index or
         REQUIRE(fs::exists(out_dir + "/index_meta.json"));
         REQUIRE(fs::exists(out_dir + "/postings.bin"));
     }
+    require_no_partial_index(out_dir);
+    cleanup_temp_dir(out_dir);
+}
+
+TEST_CASE("Phase 2.5: Output directory has exactly 0 or exactly 3 index files", "[phase2_5][atomic]")
+{
+    std::string docs_dir = create_temp_dir("phase25_atom2_");
+    std::string out_dir = create_temp_dir("phase25_out_atom2_");
+    std::string searchd = find_searchd_path();
+    write_file(docs_dir + "/y.txt", "y");
+    auto [code, out] = runtime_test::run_command_capture_output(
+        searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
+    cleanup_temp_dir(docs_dir);
+    REQUIRE(code == 0);
+    size_t file_count = 0;
+    for (const auto &e : fs::directory_iterator(out_dir))
+    {
+        (void)e;
+        ++file_count;
+    }
+    REQUIRE(file_count == 3u);
     require_no_partial_index(out_dir);
     cleanup_temp_dir(out_dir);
 }
