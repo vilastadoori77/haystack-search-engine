@@ -2,6 +2,7 @@
 #include "query_parser.h"
 #include "tokenizer.h"
 #include <algorithm>
+#include <functional>
 #include <unordered_set>
 #include "core/snippet.h"
 #include <cmath>
