@@ -1,14 +1,7 @@
 [
-    {
-        "docId": 1,
-        "text": "Teamcenter migration guide: map attributes, validate schema, run dry-run."
-    },
-    {
-        "docId": 2,
-        "text": "PLM data migration: cleansing, mapping, validation."
-    },
-    {
-        "docId": 3,
-        "text": "Schema validation checklist for integration projects."
-    }
+  {"docId": 1, "text": "The quick brown fox jumps over the lazy dog. This is a classic pangram."},
+  {"docId": 2, "text": "Search engines index documents and rank results using algorithms like BM25 and TF-IDF."},
+  {"docId": 3, "text": "Haystack is a search platform built with C++ for high performance indexing and querying."},
+  {"docId": 4, "text": "React is a popular JavaScript library for building user interfaces and single page applications."},
+  {"docId": 5, "text": "Cloud deployment with Docker and Kubernetes enables scalable distributed systems."}
 ]
