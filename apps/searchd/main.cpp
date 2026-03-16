@@ -1,5 +1,8 @@
 #include <drogon/drogon.h>
 #include "core/search_service.h"
+#include "ingestion/file_scanner.hpp"
+#include "ingestion/ocr_policy.hpp"
+#include "core/tokenizer.h"
 #include <fstream>
 #include <cstdlib>
 #include <iostream>
@@ -161,7 +164,8 @@ static std::string read_pdf_text(const fs::path &p)
     return text;
 }
 
-// Load documents from a directory of .txt and .pdf files; docId = 1, 2, ... by sorted path
+// Load documents from a directory of .txt and .pdf files; docId = 1, 2, ... by sorted path (Phase 2.5 deterministic)
+// Per-file errors are skipped (unsupported/corrupt files do not abort indexing).
 static void load_docs_from_txt_dir(SearchService &s, const std::string &dir_path)
 {
     fs::path dir(dir_path);
@@ -170,43 +174,59 @@ static void load_docs_from_txt_dir(SearchService &s, const std::string &dir_path
         throw std::runtime_error("Not a directory: " + dir_path);
     }
 
-    std::vector<fs::path> doc_files;
-    for (const auto &entry : fs::directory_iterator(dir))
-    {
-        if (!entry.is_regular_file())
-            continue;
-        std::string ext = entry.path().extension().string();
-        if (ext == ".txt" || ext == ".pdf")
-        {
-            doc_files.push_back(entry.path());
-        }
-    }
-    std::sort(doc_files.begin(), doc_files.end());
-
+    std::vector<fs::path> doc_files = haystack::phase2_5::scan_inputs(dir);
     if (doc_files.empty())
     {
         throw std::runtime_error("No .txt or .pdf files found in directory: " + dir_path);
     }
 
     int docId = 1;
+    int added = 0;
     for (const auto &p : doc_files)
     {
-        std::string text;
-        if (p.extension() == ".txt")
+        try
         {
-            std::ifstream in(p);
-            if (!in)
+            std::string text;
+            if (p.extension() == ".txt")
             {
-                throw std::runtime_error("Failed to open file: " + p.string());
+                std::ifstream in(p);
+                if (!in)
+                    continue;
+                text.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                in.close();
             }
-            text.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            in.close();
+            else
+            {
+                text = read_pdf_text(p);
+            }
+            DocMeta meta;
+            meta.file_name = p.filename().string();
+            meta.file_type = (p.extension() == ".txt") ? "txt" : "pdf";
+            meta.source_path = fs::absolute(p).string();
+            meta.page_number = 1;
+            if (p.extension() == ".txt")
+            {
+                size_t text_len = text.size();
+                size_t token_count = tokenize(text).size();
+                meta.did_ocr = haystack::phase2_5::should_apply_ocr_for_page(text_len, token_count);
+                if (meta.did_ocr && !text.empty() && text.back() != '\n')
+                    text += '\n'; // canonical format: layer + newline + ocr (ocr empty for .txt)
+            }
+            else
+            {
+                meta.did_ocr = false;
+            }
+            s.add_document(docId++, text, meta);
+            ++added;
         }
-        else
+        catch (...)
         {
-            text = read_pdf_text(p);
+            // Skip failed file (corrupt PDF, etc.); continue with others
         }
-        s.add_document(docId++, text);
+    }
+    if (added == 0)
+    {
+        throw std::runtime_error("No documents could be read from directory: " + dir_path);
     }
 }
 
@@ -403,17 +423,38 @@ int main(int argc, char **argv)
             return 2;
         }
 
-        try
+        // Validate --docs path: missing or not a directory => exit 2 (validation error)
+        if (!fs::exists(docs))
         {
-            // --docs can be a directory of .txt files or a JSON file
-            if (fs::exists(docs) && fs::is_directory(docs))
+            std::cerr << "Error: Docs path not found: " << docs << "\n";
+            return 2;
+        }
+        if (fs::is_directory(docs))
+        {
+            try
             {
                 load_docs_from_txt_dir(s, docs);
             }
-            else
+            catch (const std::exception &e)
+            {
+                std::cerr << "Error indexing/saving: " << e.what() << "\n";
+                return 3;
+            }
+        }
+        else
+        {
+            try
             {
                 load_docs_from_json(s, docs);
             }
+            catch (const std::exception &e)
+            {
+                std::cerr << "Error indexing/saving: " << e.what() << "\n";
+                return 3;
+            }
+        }
+        try
+        {
             s.save(index_dir);
             std::cout << "Indexing completed. Index saved to: " << index_dir << "\n";
             return 0;
@@ -575,6 +616,8 @@ int main(int argc, char **argv)
                 h["docId"] = hit.docId;
                 h["score"] = hit.score;
                 h["snippet"] = hit.snippet;
+                h["file_name"] = hit.file_name;
+                h["page_number"] = hit.page_number;
                 arr.append(h);
             }
             json["results"] = arr;

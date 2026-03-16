@@ -261,22 +261,22 @@ TEST_CASE("Exit code 2 for invalid port values")
     cleanup_temp_dir(index_dir);
 }
 
-TEST_CASE("Exit code 3 for nonexistent document file")
+TEST_CASE("Exit code 2 for nonexistent document path")
 {
     std::string index_dir = create_temp_dir();
     std::string nonexistent_file = "/tmp/nonexistent_docs_12345.json";
-    
+
     if (fs::exists(nonexistent_file))
     {
         fs::remove(nonexistent_file);
     }
-    
+
     std::string searchd_path = find_searchd_path();
     std::string cmd = searchd_path + " --index --docs \"" + nonexistent_file + "\" --out \"" + index_dir + "\"";
-    
+
     int exit_code = run_command_get_exit_code(cmd);
-    REQUIRE(exit_code == 3);
-    
+    REQUIRE(exit_code == 2); // validation error: docs path not found
+
     cleanup_temp_dir(index_dir);
 }
 

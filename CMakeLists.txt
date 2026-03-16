@@ -89,6 +89,7 @@ add_library(ingestion_phase25
 )
 target_include_directories(ingestion_phase25 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(ingestion_phase25 PUBLIC cxx_std_17)
+target_link_libraries(ingestion_phase25 PRIVATE search_core)
 
 target_link_libraries(haystack PRIVATE search_core)
 target_link_libraries(unit_tests PRIVATE search_core ingestion_phase25)
@@ -98,7 +99,7 @@ find_package(Drogon CONFIG REQUIRED)
 target_link_libraries(search_core PUBLIC Drogon::Drogon)
 add_executable(searchd apps/searchd/main.cpp)
 target_compile_definitions(searchd PRIVATE SEARCHD_PORT=8900)
-target_link_libraries(searchd PRIVATE search_core Drogon::Drogon)
+target_link_libraries(searchd PRIVATE search_core ingestion_phase25 Drogon::Drogon)
 
 
 

@@ -48,6 +48,13 @@ void SearchService::add_document(int doc_id, const std::string &text)
     avgdl_ = (N_ > 0) ? (static_cast<double>(total) / static_cast<double>(N_)) : 0.0;
 }
 
+void SearchService::add_document(int doc_id, const std::string &text, const DocMeta &meta)
+{
+    add_document(doc_id, text);
+    std::unique_lock lock(mu_);
+    doc_meta_[doc_id] = meta;
+}
+
 // OPTIMIZED: Helper for AND logic with const-ref parameters (no copies!)
 // Returns only document IDs present in BOTH input lists (assumes sorted input)
 static std::vector<int> intersect_sorted(const std::vector<int> &a, const std::vector<int> &b)
@@ -165,7 +172,22 @@ std::vector<SearchHit> SearchService::search_with_snippets(const std::string &qu
             }
         }
         std::string snippet = make_snippet(text, pq.terms);
-        hits.push_back({id, score, snippet});
+        SearchHit hit;
+        hit.docId = id;
+        hit.score = score;
+        hit.snippet = snippet;
+        hit.file_name = "";
+        hit.page_number = 0;
+        {
+            std::shared_lock lock(mu_);
+            auto mit = doc_meta_.find(id);
+            if (mit != doc_meta_.end())
+            {
+                hit.file_name = mit->second.file_name;
+                hit.page_number = mit->second.page_number;
+            }
+        }
+        hits.push_back(std::move(hit));
     }
     return hits;
 }
@@ -328,7 +350,7 @@ void SearchService::save(const std::string &index_dir) const
             w["indentation"] = ""; // deterministic
             out << Json::writeString(w, meta); }, std::ios::out | std::ios::trunc);
 
-    // 2) docs.jsonl (ordered by docId asc)
+    // 2) docs.jsonl (ordered by docId asc); Phase 2.5 schema when metadata present
     write_atomic(docs_path, [&](std::ofstream &out)
                  {
             std::vector<int> ids;
@@ -344,6 +366,16 @@ void SearchService::save(const std::string &index_dir) const
                 Json::Value row(Json::objectValue);
                 row["docId"] = docId;
                 row["text"]  = doc_text_.at(docId);
+                auto it = doc_meta_.find(docId);
+                if (it != doc_meta_.end())
+                {
+                    const DocMeta& m = it->second;
+                    row["file_name"] = m.file_name;
+                    row["file_type"] = m.file_type;
+                    row["source_path"] = m.source_path;
+                    row["page_number"] = m.page_number;
+                    row["did_ocr"] = m.did_ocr;
+                }
                 out << Json::writeString(w, row) << "\n";
             } }, std::ios::out | std::ios::trunc);
 
@@ -408,7 +440,8 @@ void SearchService::load(const std::string &index_dir)
     new_N = meta.get("N", 0).asInt();
     new_avgdl = meta.get("avgdl", 0.0).asDouble();
 
-    // Load documents from docs.jsonl
+    // Load documents from docs.jsonl (Phase 2.5 optional metadata)
+    std::unordered_map<int, DocMeta> new_doc_meta;
     {
         std::ifstream in(docs_path);
         if (!in)
@@ -437,6 +470,17 @@ void SearchService::load(const std::string &index_dir)
             new_doc_text[docId] = text;
             // Calculate document length (token count)
             new_doc_len[docId] = tokenize(text).size();
+
+            if (!row["file_name"].empty())
+            {
+                DocMeta m;
+                m.file_name = row.get("file_name", "").asString();
+                m.file_type = row.get("file_type", "").asString();
+                m.source_path = row.get("source_path", "").asString();
+                m.page_number = row.get("page_number", 1).asInt();
+                m.did_ocr = row.get("did_ocr", false).asBool();
+                new_doc_meta[docId] = std::move(m);
+            }
         }
     }
 
@@ -449,6 +493,7 @@ void SearchService::load(const std::string &index_dir)
         idx_ = std::move(new_idx);
         doc_len_ = std::move(new_doc_len);
         doc_text_ = std::move(new_doc_text);
+        doc_meta_ = std::move(new_doc_meta);
         N_ = new_N;
         avgdl_ = new_avgdl;
     }

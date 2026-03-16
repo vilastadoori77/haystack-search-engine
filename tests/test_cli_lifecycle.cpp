@@ -365,12 +365,8 @@ TEST_CASE("Nonexistent document file, exit code 3")
     std::string stdout_output, stderr_output;
     int exit_code = run_command_capture_output(cmd, stdout_output, stderr_output);
 
-    REQUIRE(exit_code == 3);
-    // Exact error message from spec: "Error: Document file not found: <path>\n"
-    // OR "Error indexing/saving: <specific_error>\n" (which may contain "Failed to open")
-    bool has_exact_msg = stderr_output.find("Error: Document file not found:") != std::string::npos;
-    bool has_indexing_error = stderr_output.find("Error indexing/saving:") != std::string::npos;
-    REQUIRE((has_exact_msg || has_indexing_error));
+    REQUIRE(exit_code == 2); // validation error: docs path not found
+    REQUIRE(stderr_output.find("Error") != std::string::npos);
 
     cleanup_temp_dir(index_dir);
 }

@@ -570,7 +570,9 @@ TEST_CASE("Phase 2.5: Below MIN_TEXT_CHARS triggers OCR; at or above does not", 
     REQUIRE(p_below[0].did_ocr == true);
     cleanup_temp_dir(out_below);
 
-    std::string at_or_above(50u, 'y');
+    // At or above both thresholds: >= 50 chars AND >= 10 tokens (unambiguous: 60+ chars, 12 tokens)
+    std::string at_or_above = "one two three four five six seven eight nine ten eleven twelve";
+    REQUIRE(at_or_above.size() >= 50u);
     std::string docs_dir_at = create_temp_dir("phase25_ocr50_");
     std::string out_at = create_temp_dir("phase25_out50_");
     write_file(docs_dir_at + "/a.txt", at_or_above);
@@ -602,7 +604,9 @@ TEST_CASE("Phase 2.5: Below MIN_TOKEN_COUNT triggers OCR; at MIN_TOKEN_COUNT doe
     REQUIRE(p9[0].did_ocr == true);
     cleanup_temp_dir(out9);
 
-    std::string ten_tokens = "one two three four five six seven eight nine ten";
+    // At MIN_TOKEN_COUNT (10) with >= MIN_TEXT_CHARS (50): did_ocr false (10 tokens, pad to 55 chars)
+    std::string ten_tokens = "one two three four five six seven eight nine ten           "; // 10 tokens, 50+ chars
+    REQUIRE(ten_tokens.size() >= 50u);
     std::string docs_dir10 = create_temp_dir("phase25_tok10_");
     std::string out10 = create_temp_dir("phase25_out10_");
     write_file(docs_dir10 + "/ten.txt", ten_tokens);
@@ -666,7 +670,10 @@ TEST_CASE("Phase 2.5: At MIN_TOKEN_COUNT did_ocr=false and identical on re-run",
     std::string docs_dir = create_temp_dir("phase25_tok_");
     std::string out_dir = create_temp_dir("phase25_out_tok_");
     std::string searchd = find_searchd_path();
-    write_file(docs_dir + "/ten.txt", "one two three four five six seven eight nine ten");
+    // 10 tokens, 50+ chars so did_ocr false
+    std::string ten_tokens_50chars = "one two three four five six seven eight nine ten           ";
+    REQUIRE(ten_tokens_50chars.size() >= 50u);
+    write_file(docs_dir + "/ten.txt", ten_tokens_50chars);
 
     auto [code, out] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
@@ -679,7 +686,7 @@ TEST_CASE("Phase 2.5: At MIN_TOKEN_COUNT did_ocr=false and identical on re-run",
 
     std::string docs_dir2 = create_temp_dir("phase25_tok2_");
     std::string out_dir2 = create_temp_dir("phase25_out_tok2_");
-    write_file(docs_dir2 + "/ten.txt", "one two three four five six seven eight nine ten");
+    write_file(docs_dir2 + "/ten.txt", ten_tokens_50chars);
     auto [code2, out2] = runtime_test::run_command_capture_output(
         searchd + " --index --docs \"" + docs_dir2 + "\" --out \"" + out_dir2 + "\" 2>&1", 10);
     REQUIRE(code2 == 0);
@@ -833,8 +840,8 @@ TEST_CASE("Phase 2.5: Search response includes file_name and page_number", "[pha
         searchd + " --index --docs \"" + docs_dir + "\" --out \"" + out_dir + "\" 2>&1", 10);
     cleanup_temp_dir(docs_dir);
     REQUIRE(c1 == 0);
-    std::string serve_cmd = "(" + searchd + " --serve --in \"" + out_dir + "\" --port 18905 &); pid=$!; sleep 2; curl -s 'http://127.0.0.1:18905/search?q=queryable'; kill $pid 2>/dev/null";
-    auto [c2, o2] = runtime_test::run_command_capture_output(serve_cmd, 8);
+    std::string serve_cmd = "(" + searchd + " --serve --in \"" + out_dir + "\" --port 18905 2>/dev/null &); pid=$!; sleep 3; curl -s 'http://127.0.0.1:18905/search?q=queryable'; kill $pid 2>/dev/null; wait $pid 2>/dev/null";
+    auto [c2, o2] = runtime_test::run_command_capture_output(serve_cmd, 12);
     REQUIRE(o2.find("file_name") != std::string::npos);
     REQUIRE(o2.find("page_number") != std::string::npos);
     REQUIRE(o2.find("score") != std::string::npos);

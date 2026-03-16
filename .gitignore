@@ -21,3 +21,7 @@ Makefile
 # ===== Temporary files =====
 *.log
 *.tmp
+
+# ===== Test files =====
+.cache/
+tmp/
