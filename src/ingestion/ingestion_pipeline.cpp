@@ -53,14 +53,23 @@ namespace haystack
 
             for (const auto &path : paths)
             {
-                const auto ext = path.extension().string();
-                if (ext == ".txt")
+                try
                 {
-                    process_txt(path, emitter);
+                    const auto ext = path.extension().string();
+                    if (ext == ".txt")
+                    {
+                        process_txt(path, emitter);
+                    }
+                    else if (ext == ".pdf")
+                    {
+                        process_pdf(path, emitter);
+                    }
                 }
-                else if (ext == ".pdf")
+                catch (const std::exception &)
                 {
-                    process_pdf(path, emitter);
+                    // Phase 2.5: a single unreadable/corrupt file must not abort the
+                    // whole run. Skip it and continue with the remaining files.
+                    continue;
                 }
             }
 

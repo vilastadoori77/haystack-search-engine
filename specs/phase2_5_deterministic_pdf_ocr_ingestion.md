@@ -399,4 +399,63 @@ Phase 2.5 SHALL NOT include:
 
 ---
 
+## 12. Implementation Status & Integration
+
+**Status:** ✅ Implemented and integrated into the live `searchd` binary.
+**Integration completed:** 2026-06-28
+
+### 12.1 What was integrated
+
+Prior to this date, the Phase 2.5 ingestion library (`ingestion_phase25`) existed
+and passed its tests, but `searchd` did **not** use it. The server ran its own
+inline PDF reader (`read_pdf_text`) that treated each PDF as a **single document
+with `page_number = 1`**, so the spec's page-level indexing requirement (Goal:
+"deterministic, page-level PDF indexing") was not actually delivered to end users.
+
+This integration closed that gap:
+
+1. **`searchd` now ingests via the library.** `load_docs_from_txt_dir()` calls
+   `haystack::phase2_5::ingest_directory()` instead of the inline reader. PDFs are
+   indexed **one document per page with the real `page_number`**, and `docId`s are
+   assigned deterministically by `(source_path, page_number)`.
+2. **`ingestion_pipeline.cpp` added to the build** (`CMakeLists.txt`, library
+   `ingestion_phase25`). It had been present in the source tree but never compiled.
+3. **Duplicate code removed.** The inline `read_pdf_text`, `run_cmd_capture`, and
+   `shell_escape` helpers were deleted from `apps/searchd/main.cpp`
+   (net −112 lines); there is now a single ingestion path.
+
+### 12.2 Library completeness fixes (to match this spec)
+
+Integration revealed the library was missing three behaviors this spec requires.
+They were completed:
+
+- **OCR policy applies to `.txt`** — `process_txt()` now computes
+  `did_ocr = should_apply_ocr_for_page(text_len, token_count)` (MIN_TEXT_CHARS=50,
+  MIN_TOKEN_COUNT=10) instead of hardcoding `false`.
+- **Canonical text format** — when `did_ocr` is true, `process_txt()` emits the
+  canonical `text_layer + newline + ocr` form (OCR portion empty for `.txt`).
+- **Corrupt-file resilience** — `ingest_directory()` wraps per-file processing in
+  try/catch and **skips** unreadable/corrupt files instead of aborting the run
+  (preserves exit-code semantics: a single bad PDF does not cause exit 3).
+
+### 12.3 Verification
+
+- Unit tests: **231 assertions / 93 cases** — all passing.
+- Runtime tests: **438 assertions / 62 cases** — all passing (includes
+  `[phase2_5]` ingestion, OCR-trigger, canonical-format, and corrupt-PDF cases).
+- End-to-end: a generated 3-page PDF indexed via `searchd --index` produced 3
+  per-page documents (`page_number` 1/2/3); `searchd --serve` search for a
+  page-specific term returned the correct `page_number`.
+
+### 12.4 Files changed
+
+| File | Change |
+|------|--------|
+| `CMakeLists.txt` | Added `src/ingestion/ingestion_pipeline.cpp` to `ingestion_phase25` |
+| `apps/searchd/main.cpp` | Ingest via `ingest_directory`; removed inline PDF/OCR helpers |
+| `src/ingestion/txt_processor.cpp` | OCR policy + canonical newline for `.txt` |
+| `src/ingestion/ingestion_pipeline.cpp` | Skip corrupt/unreadable files per file |
+
+---
+
 **End of Phase 2.5 Specification**

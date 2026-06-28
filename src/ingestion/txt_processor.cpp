@@ -2,6 +2,8 @@
 #include "ingestion/txt_processor.hpp"
 #include <stdexcept>
 #include "ingestion/document_builder.hpp"
+#include "ingestion/ocr_policy.hpp"
+#include "core/tokenizer.h"
 
 #include <fstream>
 #include <sstream>
@@ -36,6 +38,17 @@ namespace haystack
             //-- Read the entire file content into a string
             std::ostringstream ss;
             ss << file.rdbuf();
+            std::string text = ss.str();
+
+            // Phase 2.5 OCR policy applies to .txt as well: text that is too short
+            // or has too few tokens flags did_ocr=true. No image OCR is run for a
+            // text file, but we record the policy decision and emit the canonical
+            // "text_layer + newline + ocr" format (ocr portion is empty for .txt).
+            const std::size_t text_len = text.size();
+            const std::size_t token_count = tokenize(text).size();
+            const bool did_ocr = should_apply_ocr_for_page(text_len, token_count);
+            if (did_ocr && !text.empty() && text.back() != '\n')
+                text += '\n';
 
             // Construct IngestedDocument
             IngestedDocument doc;
@@ -47,8 +60,8 @@ namespace haystack
             doc.source_path = abs_path.generic_string();
             doc.file_type = "txt";
             doc.page_number = 1;
-            doc.text = ss.str();
-            doc.did_ocr = false; // OCR policy applied later in the pipeline
+            doc.text = std::move(text);
+            doc.did_ocr = did_ocr;
 
             // --Emit Document --
             emitter.emit(std::move(doc));

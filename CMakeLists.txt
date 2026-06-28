@@ -86,6 +86,7 @@ add_library(ingestion_phase25
   src/ingestion/txt_processor.cpp
   src/ingestion/pdf_processor.cpp
   src/ingestion/deterministic_aggregator.cpp
+  src/ingestion/ingestion_pipeline.cpp
 )
 target_include_directories(ingestion_phase25 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(ingestion_phase25 PUBLIC cxx_std_17)

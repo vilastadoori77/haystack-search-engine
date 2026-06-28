@@ -1,8 +1,7 @@
 #include <drogon/drogon.h>
 #include "core/search_service.h"
-#include "ingestion/file_scanner.hpp"
-#include "ingestion/ocr_policy.hpp"
-#include "core/tokenizer.h"
+#include "ingestion/ingestion_pipeline.hpp"
+#include "ingestion/ingestion_types.hpp"
 #include <fstream>
 #include <cstdlib>
 #include <iostream>
@@ -22,23 +21,6 @@
 #include <cstdarg>
 
 namespace fs = std::filesystem;
-
-// Escape path for shell: wrap in single quotes, escape any ' as '\''
-static std::string shell_escape(const std::string &path_str)
-{
-    std::string escaped;
-    escaped.reserve(path_str.size() + 4);
-    escaped += "'";
-    for (char c : path_str)
-    {
-        if (c == '\'')
-            escaped += "'\\''";
-        else
-            escaped += c;
-    }
-    escaped += "'";
-    return escaped;
-}
 
 // Phase 2.4: Server readiness tracking
 static std::atomic<bool> g_server_ready{false};
@@ -80,90 +62,6 @@ static void load_docs_from_json(SearchService &s, const std::string &path)
     }
 }
 
-// Run a command and return its stdout. Returns empty string on failure.
-static std::string run_cmd_capture(const std::string &cmd)
-{
-    std::FILE *pipe = popen(cmd.c_str(), "r");
-    if (!pipe)
-        return "";
-    std::string out;
-    char buf[4096];
-    while (std::fgets(buf, sizeof(buf), pipe) != nullptr)
-        out += buf;
-    pclose(pipe);
-    return out;
-}
-
-// Extract text from a PDF: native text layer (pdftotext) + OCR from embedded images (pdftoppm + tesseract).
-static std::string read_pdf_text(const fs::path &p)
-{
-    std::string path_str = p.string();
-    std::string escaped = shell_escape(path_str);
-
-    // 1) Native text layer via pdftotext
-    std::string cmd = "pdftotext -layout " + escaped + " - 2>/dev/null";
-    std::FILE *pipe = popen(cmd.c_str(), "r");
-    if (!pipe)
-    {
-        throw std::runtime_error("Failed to run pdftotext (is poppler installed?). File: " + path_str +
-            " Install: brew install poppler (macOS) or apt install poppler-utils (Linux).");
-    }
-    std::string text;
-    char buf[4096];
-    while (std::fgets(buf, sizeof(buf), pipe) != nullptr)
-        text += buf;
-    int status = pclose(pipe);
-    if (status != 0 && text.empty())
-    {
-        throw std::runtime_error("pdftotext failed for file: " + path_str +
-            ". Install: brew install poppler (macOS). Otherwise the PDF may be invalid or have no text layer.");
-    }
-
-    // 2) OCR text from embedded images: render each page with pdftoppm, run tesseract on each image
-    static int ocr_counter = 0;
-    fs::path temp_base = fs::temp_directory_path() / ("pdfocr_" + std::to_string(static_cast<unsigned>(getpid())) + "_" + std::to_string(ocr_counter++));
-    std::string temp_escaped = shell_escape(temp_base.string());
-    // -r 300: higher DPI so OCR can read small/boxed text (e.g. "Docker Client" in diagrams)
-    std::string pdftoppm_cmd = "pdftoppm -png -r 300 " + escaped + " " + temp_escaped + " 2>/dev/null";
-    int pdftoppm_ret = std::system(pdftoppm_cmd.c_str());
-    if (pdftoppm_ret == 0)
-    {
-        std::string prefix = temp_base.filename().string();
-        std::vector<fs::path> page_images;
-        for (const auto &entry : fs::directory_iterator(temp_base.parent_path()))
-        {
-            fs::path ep = entry.path();
-            std::string fname = ep.filename().string();
-            if (fname.size() > prefix.size() && fname.compare(0, prefix.size(), prefix) == 0 && (ep.extension() == ".png" || ep.extension() == ".ppm"))
-                page_images.push_back(ep);
-        }
-        std::sort(page_images.begin(), page_images.end());
-        std::string ocr_text;
-        for (const auto &img : page_images)
-        {
-            std::string img_esc = shell_escape(img.string());
-            // --psm 11: sparse text (diagrams/boxes) so labels like "Docker Client" are found
-            std::string ocr_cmd = "tesseract " + img_esc + " stdout --psm 11 2>/dev/null";
-            std::string page_text = run_cmd_capture(ocr_cmd);
-            if (!page_text.empty())
-            {
-                if (!ocr_text.empty())
-                    ocr_text += "\n";
-                ocr_text += page_text;
-            }
-        }
-        for (const auto &img : page_images)
-        {
-            std::error_code ec;
-            fs::remove(img, ec);
-        }
-        if (!ocr_text.empty())
-            text += (text.empty() ? "" : "\n") + ocr_text;
-    }
-
-    return text;
-}
-
 // Load documents from a directory of .txt and .pdf files; docId = 1, 2, ... by sorted path (Phase 2.5 deterministic)
 // Per-file errors are skipped (unsupported/corrupt files do not abort indexing).
 static void load_docs_from_txt_dir(SearchService &s, const std::string &dir_path)
@@ -174,59 +72,26 @@ static void load_docs_from_txt_dir(SearchService &s, const std::string &dir_path
         throw std::runtime_error("Not a directory: " + dir_path);
     }
 
-    std::vector<fs::path> doc_files = haystack::phase2_5::scan_inputs(dir);
-    if (doc_files.empty())
-    {
-        throw std::runtime_error("No .txt or .pdf files found in directory: " + dir_path);
-    }
+    // Phase 2.5: run the full deterministic ingestion pipeline.
+    // PDFs are indexed one document per page (real page_number) with OCR applied
+    // per ocr_policy; docIds are assigned deterministically by (source_path, page).
+    std::vector<haystack::phase2_5::IngestedDocument> docs =
+        haystack::phase2_5::ingest_directory(dir);
 
-    int docId = 1;
-    int added = 0;
-    for (const auto &p : doc_files)
-    {
-        try
-        {
-            std::string text;
-            if (p.extension() == ".txt")
-            {
-                std::ifstream in(p);
-                if (!in)
-                    continue;
-                text.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-                in.close();
-            }
-            else
-            {
-                text = read_pdf_text(p);
-            }
-            DocMeta meta;
-            meta.file_name = p.filename().string();
-            meta.file_type = (p.extension() == ".txt") ? "txt" : "pdf";
-            meta.source_path = fs::absolute(p).string();
-            meta.page_number = 1;
-            if (p.extension() == ".txt")
-            {
-                size_t text_len = text.size();
-                size_t token_count = tokenize(text).size();
-                meta.did_ocr = haystack::phase2_5::should_apply_ocr_for_page(text_len, token_count);
-                if (meta.did_ocr && !text.empty() && text.back() != '\n')
-                    text += '\n'; // canonical format: layer + newline + ocr (ocr empty for .txt)
-            }
-            else
-            {
-                meta.did_ocr = false;
-            }
-            s.add_document(docId++, text, meta);
-            ++added;
-        }
-        catch (...)
-        {
-            // Skip failed file (corrupt PDF, etc.); continue with others
-        }
-    }
-    if (added == 0)
+    if (docs.empty())
     {
         throw std::runtime_error("No documents could be read from directory: " + dir_path);
+    }
+
+    for (const auto &doc : docs)
+    {
+        DocMeta meta;
+        meta.file_name = doc.file_name;
+        meta.file_type = doc.file_type;
+        meta.source_path = doc.source_path;
+        meta.page_number = doc.page_number;
+        meta.did_ocr = doc.did_ocr;
+        s.add_document(doc.docId, doc.text, meta);
     }
 }
 
