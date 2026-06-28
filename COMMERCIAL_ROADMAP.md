@@ -9,7 +9,7 @@
 
 A **self-hostable, document-focused search platform** built on a C++ core:
 
-- Inverted index + BM25/TF-IDF ranking (lexical search)
+- Inverted index + BM25 ranking (lexical search)
 - On-disk persistence, serve mode, REST API, React GUI
 - **Built-in PDF + OCR ingestion with page-level indexing** ← the differentiator
 
@@ -23,7 +23,7 @@ with native OCR/document ingestion that those tools do not provide out of the bo
 | Capability | Haystack | Meilisearch / Typesense | Elasticsearch / Solr | Algolia (SaaS) |
 |---|---|---|---|---|
 | Inverted index | ✅ | ✅ | ✅ | ✅ |
-| BM25 / TF-IDF ranking | ✅ (Phase 3) | ✅ | ✅ | ✅ |
+| BM25 ranking | ⬜ Phase 3 (implemented; formalization in progress) | ✅ | ✅ | ✅ |
 | Disk persistence | ✅ | ✅ | ✅ | ✅ |
 | REST API | ✅ basic | ✅ | ✅ rich | ✅ |
 | **PDF + OCR ingestion** | ✅ **built-in** | ❌ | ❌ | ❌ |

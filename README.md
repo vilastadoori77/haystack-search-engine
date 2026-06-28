@@ -5,7 +5,7 @@
 A **cloud-deployable, production-grade Search Platform** with C++ core search capabilities:
 
 - Indexes documents into an on-disk inverted index
-- Serves queries with ranking algorithms (BM25/TF-IDF)
+- Serves queries with relevance ranking (BM25)
 - Exposes a REST API
 - Features a React GUI that evolves each phase to validate capabilities
 - Includes user registration, sessions, RBAC security, observability, performance tuning, and cloud deployment
@@ -28,7 +28,7 @@ A **cloud-deployable, production-grade Search Platform** with C++ core search ca
        ▼
 ┌─────────────────────┐
 │  C++ Search Service │  4. Reads on-disk index (mmap)
-│                     │  5. Ranks results (BM25/TF-IDF)
+│                     │  5. Ranks results (BM25)
 │                     │  6. Returns JSON
 └──────┬──────────────┘
        │
@@ -55,7 +55,7 @@ A **cloud-deployable, production-grade Search Platform** with C++ core search ca
 | **0** | Foundation | Repo structure, build system, CI, logging | CMake setup, Catch2 tests, CI pipeline |
 | **1** | Core Indexing Library | In-memory indexing engine | Tokenizer, inverted index, basic queries |
 | **2** | Persistent Index + Correctness | Disk persistence, serve mode, hardening | Disk I/O, lifecycle management, TDD |
-| **3** | Ranking & Query Engine | Advanced scoring algorithms | BM25, TF-IDF, relevance tuning |
+| **3** | Ranking & Query Engine | BM25 relevance scoring | BM25 scoring, query semantics, reference validation |
 | **4** | HTTP Service | REST API implementation | Endpoints, JSON I/O, error handling |
 | **5** | Identity + Sessions + RBAC | Security layer | User auth, session mgmt, role-based access |
 | **6** | Observability | Monitoring and diagnostics | Metrics, logs, tracing hooks |
@@ -119,7 +119,7 @@ Core Modules:
 ├── Tokenizer
 ├── Inverted Index
 ├── Query Engine
-├── Ranking (BM25/TF-IDF)
+├── Ranking (BM25)
 └── Storage Layer
 ```
 
