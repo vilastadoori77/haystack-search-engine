@@ -44,8 +44,9 @@ A **cloud-deployable, production-grade Search Platform** with C++ core search ca
 
 ### Current Status
 - ✅ **Completed:** Phase 0-1
-- 🔄 **In Progress:** Phase 2 (substeps 2.1-2.4)
-- ⏭️ **Next:** Phase 3
+- ✅ **Completed:** Phase 2 (substeps 2.1-2.5) - persistence, CLI/runtime lifecycle, operational guarantees, PDF + OCR ingestion
+- ✅ **Completed:** Phase 2 GUI - custom hooks (useSearch, useHealthCheck, useDebounce)
+- ⏭️ **Next:** Phase 3 (Ranking & Query Engine)
 
 ### Phase Breakdown
 
@@ -65,7 +66,7 @@ A **cloud-deployable, production-grade Search Platform** with C++ core search ca
 
 ---
 
-## 4. Phase 2 Deep Dive (Current Focus)
+## 4. Phase 2 Deep Dive (Complete)
 
 Phase 2 establishes production-ready persistence and correctness:
 
@@ -89,6 +90,16 @@ Phase 2 establishes production-ready persistence and correctness:
 - Error path validation
 - Code refactoring for maintainability
 - Integration test suite
+
+### 2.5 - Deterministic PDF + OCR Ingestion
+- Folder-based ingestion of mixed `.txt` and `.pdf` content
+- Page-level PDF indexing (one document per page)
+- Deterministic OCR policy (no user toggle; triggered by MIN_TEXT_CHARS / MIN_TOKEN_COUNT)
+- Deterministic docId assignment and traversal order (UTF-8 byte-order sorted paths)
+- Bounded worker/OCR thread pools, CPU-safe parallel indexing
+- Additive metadata: `source_path`, `file_name`, `file_type`, `page_number`, `did_ocr`
+- Search responses include `file_name` and `page_number` per hit
+- Spec: `specs/phase2_5_deterministic_pdf_ocr_ingestion.md`
 
 **Parallel Track:** React GUI development begins to validate each substep
 
@@ -217,10 +228,9 @@ search-platform/
 
 ## 9. Next Steps (Immediate)
 
-1. **Complete Phase 2.4** - Finalize test harness and edge cases
-2. **Begin Phase 3** - Implement BM25 scoring algorithm
-3. **Update React UI** - Add ranking score visualization
-4. **Documentation** - Create API specification for Phase 4
+1. **Write Phase 3 spec** - Ranking & Query Engine (formalize BM25 scoring, relevance tuning, reference-implementation validation)
+2. **Update React UI** - Add ranking score visualization for Phase 3
+3. **Documentation** - Create API specification for Phase 4
 
 ---
 
@@ -234,9 +244,9 @@ search-platform/
 
 ---
 
-**Last Updated:** January 2026  
-**Phase Status:** 2.4 (Hardening)  
-**Next Milestone:** Phase 2 GUI - Custom Hooks
+**Last Updated:** June 2026  
+**Phase Status:** 2.5 Complete (PDF + OCR Ingestion)  
+**Next Milestone:** Phase 3 - Ranking & Query Engine
 
 ## Phase 2 GUI - Custom Hooks ✅
 

@@ -43,11 +43,16 @@ export class InvalidResponseError extends Error {
 
 /**
  * Search result item returned from the API
+ *
+ * file_name and page_number were added in Phase 2.5 (PDF + OCR ingestion).
+ * They are optional so responses from pre-2.5 indexes remain valid.
  */
 export interface SearchResult {
     docId: number;
     score: number;
     snippet: string;
+    file_name?: string;
+    page_number?: number;
 }
 
 /**

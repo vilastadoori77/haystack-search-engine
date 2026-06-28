@@ -47,7 +47,10 @@ function isValidSearchResult(result: unknown): result is SearchResult {
     return (
         typeof obj.docId === 'number' &&
         typeof obj.score === 'number' &&
-        typeof obj.snippet === 'string'
+        typeof obj.snippet === 'string' &&
+        // Phase 2.5 metadata is optional, but must be well-typed when present
+        (obj.file_name === undefined || typeof obj.file_name === 'string') &&
+        (obj.page_number === undefined || typeof obj.page_number === 'number')
     );
 }
 

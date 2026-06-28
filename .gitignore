@@ -25,3 +25,4 @@ Makefile
 # ===== Test files =====
 .cache/
 tmp/
+Testing/

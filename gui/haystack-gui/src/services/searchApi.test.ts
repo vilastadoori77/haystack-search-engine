@@ -383,6 +383,56 @@ describe('searchApi', () => {
       // Then: InvalidResponseError thrown
       await expect(search(query, k)).rejects.toThrow(InvalidResponseError);
     });
+
+    // Phase 2.5: accepts results carrying file_name and page_number metadata
+    it('accepts Phase 2.5 metadata fields (file_name, page_number)', async () => {
+      // Given: Server returns results with Phase 2.5 metadata
+      const mockResponse: SearchResponse = {
+        query: 'test',
+        results: [
+          {
+            docId: 1,
+            score: 2.456,
+            snippet: 'Test snippet',
+            file_name: 'report.pdf',
+            page_number: 3,
+          },
+        ],
+      };
+
+      mockAdapter.onGet('/search?q=test&k=10').reply(200, mockResponse);
+
+      // When: search("test", 10) called
+      const result = await search('test', 10);
+
+      // Then: Metadata is preserved on the result
+      const firstResult = result.results[0];
+      expect(firstResult?.file_name).toBe('report.pdf');
+      expect(firstResult?.page_number).toBe(3);
+    });
+
+    // Phase 2.5: rejects malformed metadata fields
+    it('rejects results with malformed Phase 2.5 metadata', async () => {
+      // Given: Server returns metadata with wrong types
+      const invalidResponse = {
+        query: 'test',
+        results: [
+          {
+            docId: 1,
+            score: 2.456,
+            snippet: 'Test snippet',
+            file_name: 123, // should be a string
+            page_number: 'three', // should be a number
+          },
+        ],
+      };
+
+      mockAdapter.onGet('/search?q=test&k=10').reply(200, invalidResponse);
+
+      // When: search("test", 10) called
+      // Then: InvalidResponseError thrown
+      await expect(search('test', 10)).rejects.toThrow(InvalidResponseError);
+    });
   });
 
   describe('checkHealth() edge cases', () => {
