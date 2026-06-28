@@ -1,4 +1,5 @@
 #include "search_service.h"
+#include "core/score_order.h"
 #include "query_parser.h"
 #include "tokenizer.h"
 #include <algorithm>
@@ -283,11 +284,9 @@ std::vector<std::pair<int, double>> SearchService::search_scored(const std::stri
         scored.push_back({docId, score});
     }
 
-    // Sort by score descending, then by docId ascending for determinism
+    // Sort by score descending; |Δscore| < 1e-9 is a tie → ascending docId (§4.1).
     std::sort(scored.begin(), scored.end(), [](const Scored &a, const Scored &b)
-              {
-            if(a.score != b.score) return a.score > b.score;
-            return a.doc_id < b.doc_id; });
+              { return haystack::compare_scored_desc(a.doc_id, a.score, b.doc_id, b.score); });
 
     std::vector<std::pair<int, double>> out;
     out.reserve(scored.size());

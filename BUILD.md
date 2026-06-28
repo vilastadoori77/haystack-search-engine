@@ -16,6 +16,7 @@ All of these are installed via [Homebrew](https://brew.sh) on macOS.
 | **Tesseract** | OCR engine (Phase 2.5 ingestion) | `brew install tesseract` |
 | **Leptonica** | Image processing (OCR dependency) | `brew install leptonica` |
 | **Poppler** | PDF text extraction | `brew install poppler` |
+| **Python 3** | Regenerate Phase 3 BM25 reference fixture (`tests/phase3_ranking/fixtures/bm25_reference.py`) | Ships with macOS / `brew install python` |
 
 > Catch2 (the test framework) is **not** installed manually — CMake fetches it
 > automatically via `FetchContent` the first time you configure.

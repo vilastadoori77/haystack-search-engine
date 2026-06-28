@@ -2,14 +2,22 @@
 
 ## Spec Status
 
-**Status:** Draft — revised per review (ready for approval)
-**Version:** 0.2
+**Status:** Finalized and Approved
+**Version:** 1.0
 **Date:** 2026-06-28
-**Approved By:** _(pending Spec Review / VT)_
+**Approval Date:** 2026-06-28
+**Approved By:** Spec Review (VT)
 **Dependencies:** Phase 2.0 (Core indexing) — COMPLETE, Phase 2.1 (Persistence) — COMPLETE, Phase 2.2–2.4 (CLI/runtime lifecycle) — COMPLETE, Phase 2.5 (PDF + OCR ingestion) — COMPLETE
 
+**Approval notes:**
+- Specification is complete, internally consistent, and testable.
+- Spec review pushback (`pushback/specs/phase3_ranking_query_engine_review.md`) — ✅ CLOSED (resolved in v0.2).
+- TDD plan pushback (`pushback/tdd/phase3_ranking_query_engine_tdd_review.md`) — ✅ CLOSED (resolved in TDD v0.2).
+- Approved for test generation and TDD implementation (`tdd/phase3_ranking_query_engine_tdd.md`).
+
 **Revision history:**
-- v0.2 (2026-06-28): Addressed review pushback (`pushback/phase3_ranking_query_engine_review.md`) — aligned tolerance to `1e-9` and epsilon tie rule (Phase 2.1), added Query Language section, deferred TF-IDF in Non-Goals, declared authoritative relationship to Phase 2.1, made reference validation concrete, noted orphan `test_ranking.cpp`, clarified top-k and optional GUI debug view.
+- v1.0 (2026-06-28): Finalized and approved for implementation after both spec and TDD pushback reviews were closed.
+- v0.2 (2026-06-28): Addressed review pushback (`pushback/specs/phase3_ranking_query_engine_review.md`) — aligned tolerance to `1e-9` and epsilon tie rule (Phase 2.1), added Query Language section, deferred TF-IDF in Non-Goals, declared authoritative relationship to Phase 2.1, made reference validation concrete, noted orphan `test_ranking.cpp`, clarified top-k and optional GUI debug view.
 - v0.1 (2026-06-28): Initial draft.
 
 **Relationship to Phase 2.1:** This spec is the **authoritative** definition of
@@ -228,10 +236,9 @@ Results SHALL be ordered by descending BM25 score. Two scores SHALL be considere
 identical index content and an identical query, the ordered result list SHALL be
 reproducible across runs, machines, and CI.
 
-> Implementation note (informative): the current code in `search_service.cpp` breaks
-> ties on exact float inequality (`a.score != b.score`). Phase 3 SHALL adopt the
-> `1e-9` epsilon tie comparison so that ordering is stable against sub-`1e-9`
-> floating-point noise, matching Phase 2.1.
+> Implementation note (informative): `haystack::compare_scored_desc` in
+> `src/core/score_order.h` implements the `1e-9` epsilon tie rule; `search_service.cpp`
+> uses it for result ordering (§4.1).
 
 **Requirement 4.2: Score Reproducibility**
 
@@ -359,19 +366,19 @@ a false impression of coverage.
 
 Phase 3 is complete when:
 
-- [ ] BM25 formula, IDF form, and parameters (k1=1.2, b=0.75) are implemented and
+- [x] BM25 formula, IDF form, and parameters (k1=1.2, b=0.75) are implemented and
       documented exactly as in §2.
-- [ ] Query semantics (AND default, OR, NOT) behave as in §3.
-- [ ] Ordering is deterministic with a `1e-9` epsilon tie rule, tie-broken by
+- [x] Query semantics (AND default, OR, NOT) behave as in §3.
+- [x] Ordering is deterministic with a `1e-9` epsilon tie rule, tie-broken by
       ascending `docId` (§4.1).
-- [ ] Scores match the checked-in reference fixture within `1e-9` and ordering
+- [x] Scores match the checked-in reference fixture within `1e-9` and ordering
       matches exactly; the test runs in CI (§5).
-- [ ] Score/order are stable across `save`→`load` within `1e-9` (§4.3).
-- [ ] Query Language (§3.0) behaves as documented, including the listed edge cases.
-- [ ] `/search` exposes `score` and ranks before top-k truncation (§6.1, §6.1.1);
+- [x] Score/order are stable across `save`→`load` within `1e-9` (§4.3).
+- [x] Query Language (§3.0) behaves as documented, including the listed edge cases.
+- [x] `/search` exposes `score` and ranks before top-k truncation (§6.1, §6.1.1);
       GUI surfaces the score (§6.3).
-- [ ] `tests/test_ranking.cpp` is wired into `CMakeLists.txt` or deleted (no orphans).
-- [ ] All Phase 2.x tests still pass (§1.1.2); new Phase 3 tests pass.
+- [x] `tests/phase3_ranking/test_ranking.cpp` is wired into `CMakeLists.txt` (no orphans).
+- [x] All Phase 2.x tests still pass (§1.1.2); new Phase 3 tests pass.
 
 ---
 
@@ -386,21 +393,23 @@ implementation focuses on the gaps.
 - IDF as `ln(((N − df + 0.5)/(df + 0.5)) + 1)` (§2.1.2).
 - TF saturation with length normalization and divide-by-zero guard (§2.1.4).
 - AND/OR/NOT candidate selection via `parse_query` (`terms`, `not_terms`, `is_or`).
-- Deterministic sort: score descending, `docId` ascending (§4.1).
+- Deterministic sort: score descending; `1e-9` epsilon tie → `docId` ascending via
+  `score_order.h` (§4.1).
 - `N` and `avgdl` persisted in `index_meta.json` and restored on load (§2.2).
 - `score` already returned in the `/search` response and rendered by `ResultCard`.
 
-**Gaps to close in Phase 3:**
+**Gaps closed in Phase 3 (2026-06-28):**
 
-- Formalize and document the model as the source of truth (this spec). ✅ done by v0.2.
-- Adopt the `1e-9` epsilon tie comparison in `search_service.cpp` (currently exact
-  float inequality) — §4.1.
-- Add the reference-validation fixture + script + test (§5).
-- Extend `test_bm25.cpp` to cover IDF, OR, NOT, tie-break, and save/load parity.
-- Confirm/define behavior for edge cases (empty index, NOT-only query) with tests.
-- **Resolve orphan `tests/test_ranking.cpp`** — wire into `CMakeLists.txt` or delete.
-- Optionally add ranking-detail exposure (§6.2) and a GUI debug view (§6.3) — both
-  optional / post-Phase-3.
+- Formalize and document the model as the source of truth (this spec). ✅
+- `1e-9` epsilon tie comparison in `score_order.h` / `search_service.cpp` (§4.1). ✅
+- Reference-validation fixture + script + tests under `tests/phase3_ranking/` (§5). ✅
+- Phase 3 tests: IDF, OR, NOT, tie-break, semantics, runtime ranking (§3, §6). ✅
+- Edge cases (empty index, NOT-only query) covered in `test_ranking.cpp`. ✅
+- Orphan `test_ranking.cpp` resolved — rewritten under `tests/phase3_ranking/`. ✅
+
+**Still optional / post-Phase-3:**
+
+- Ranking-detail exposure (§6.2) and GUI debug view (§6.3 optional).
 
 ---
 

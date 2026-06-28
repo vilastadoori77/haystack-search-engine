@@ -1,0 +1,140 @@
+{
+  "k1": 1.2,
+  "b": 0.75,
+  "tolerance": 1e-09,
+  "cases": [
+    {
+      "name": "single_term",
+      "documents": [
+        {
+          "docId": 1,
+          "text": "alpha bravo"
+        },
+        {
+          "docId": 2,
+          "text": "alpha alpha bravo"
+        },
+        {
+          "docId": 3,
+          "text": "charlie"
+        }
+      ],
+      "query": "alpha",
+      "expected": [
+        {
+          "docId": 2,
+          "score": 0.5665797174469143
+        },
+        {
+          "docId": 1,
+          "score": 0.47000362924573563
+        }
+      ]
+    },
+    {
+      "name": "multi_and",
+      "documents": [
+        {
+          "docId": 1,
+          "text": "alpha bravo"
+        },
+        {
+          "docId": 2,
+          "text": "alpha charlie"
+        },
+        {
+          "docId": 3,
+          "text": "bravo charlie"
+        },
+        {
+          "docId": 4,
+          "text": "alpha bravo delta"
+        }
+      ],
+      "query": "alpha bravo",
+      "expected": [
+        {
+          "docId": 1,
+          "score": 0.7473189301573443
+        },
+        {
+          "docId": 4,
+          "score": 0.6277479013321691
+        }
+      ]
+    },
+    {
+      "name": "length_norm",
+      "documents": [
+        {
+          "docId": 1,
+          "text": "hello filler filler filler filler filler filler filler filler filler filler world"
+        },
+        {
+          "docId": 2,
+          "text": "hello world"
+        }
+      ],
+      "query": "hello world",
+      "expected": [
+        {
+          "docId": 2,
+          "score": 0.5151838485553947
+        },
+        {
+          "docId": 1,
+          "score": 0.28218612810320615
+        }
+      ]
+    },
+    {
+      "name": "idf_rare_term",
+      "documents": [
+        {
+          "docId": 1,
+          "text": "common common common rareword"
+        },
+        {
+          "docId": 2,
+          "text": "common common common common"
+        },
+        {
+          "docId": 3,
+          "text": "common common common"
+        }
+      ],
+      "query": "rareword common",
+      "expected": [
+        {
+          "docId": 1,
+          "score": 1.1514855353040392
+        }
+      ]
+    }
+  ],
+  "tie_break": {
+    "name": "tie_break",
+    "documents": [
+      {
+        "docId": 1,
+        "text": "tie query token"
+      },
+      {
+        "docId": 2,
+        "text": "tie query token"
+      }
+    ],
+    "query": "tie query",
+    "expected": [
+      {
+        "docId": 1,
+        "score": 0.3646431135879092
+      },
+      {
+        "docId": 2,
+        "score": 0.3646431135879092
+      }
+    ],
+    "require_epsilon_tie": true
+  }
+}

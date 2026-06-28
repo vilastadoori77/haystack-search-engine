@@ -32,8 +32,12 @@ add_executable(unit_tests
   tests/test_cli_error_messages.cpp
   tests/test_cli_exit_codes.cpp
   tests/test_file_scanner.cpp
+  tests/phase3_ranking/bm25_fixture.cpp
+  tests/phase3_ranking/test_bm25_reference.cpp
+  tests/phase3_ranking/test_ranking.cpp
 )
 
+target_include_directories(unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests/phase3_ranking)
 target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
 
 # Runtime tests: run subprocesses (e.g. searchd) with timeouts so they don't hang
@@ -51,6 +55,7 @@ add_executable(runtime_tests
   tests/test_runtime_safety.cpp
   tests/test_runtime_shutdown_idempotency.cpp
   tests/test_phase2_5_pdf_ocr_ingestion.cpp
+  tests/phase3_ranking/test_runtime_search_ranking.cpp
 )
 target_include_directories(runtime_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(runtime_tests PRIVATE Catch2::Catch2WithMain)
